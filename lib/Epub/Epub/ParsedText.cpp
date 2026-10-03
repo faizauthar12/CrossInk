@@ -1220,6 +1220,16 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
         break;
       }
     }
+    // Preformatted indentation is glued to the code token after it. If the glued group is wider
+    // than the line, split the token so its head still fits after the indent; the remainder
+    // starts a fresh (unglued) token on the next line, like a browser's overflow wrap.
+    if (preformatted_ && i > 0 && continuesVec[i]) {
+      int lead = 0;
+      for (size_t k = i; k > 0 && continuesVec[k]; --k) lead += wordWidths[k - 1];
+      if (lead < effectiveWidth && lead + wordWidths[i] > effectiveWidth) {
+        splitTokenAtCodepointBoundary(i, effectiveWidth - lead, renderer, fontId, wordWidths);
+      }
+    }
   }
 
   if (!calculateGapMetrics(naturalGaps, gapSlots, renderer, fontId)) {
@@ -1247,6 +1257,7 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
 
     // First line has reduced width due to text-indent
     const int effectivePageWidth = i == 0 ? pageWidth - firstLineIndent : pageWidth;
+    size_t lastFitting = i;  // furthest token that still fits, ignoring no-break groups
 
     for (size_t j = i; j < totalWordCount; ++j) {
       // Add space before word j, unless it's the first word on the line or a continuation
@@ -1263,6 +1274,7 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
       if (currlen > effectivePageWidth) {
         break;
       }
+      lastFitting = j;
 
       // Cannot break after word j if the next word attaches to it (continuation group)
       if (nextTokenAttaches(j, totalWordCount)) {
@@ -1300,10 +1312,13 @@ bool ParsedText::computeLineBreaks(Arena& scratchArena, const GfxRenderer& rende
     // Handle oversized word: if no valid configuration found, force single-word line
     // This prevents cascade failure where one oversized word breaks all preceding words
     if (dp[i] == MAX_COST) {
-      ans[i] = i;  // Just this word on its own line
+      // Preformatted text glues indentation spaces to the code that follows; when that group is
+      // wider than the page, one token per line would turn every indent space into a blank line.
+      // Fill the line instead and wrap inside the group, like a browser's overflow wrap.
+      ans[i] = preformatted_ ? lastFitting : i;
       // Inherit cost from next word to allow subsequent words to find valid configurations
-      if (i + 1 < static_cast<int>(totalWordCount)) {
-        dp[i] = dp[i + 1];
+      if (ans[i] + 1 < totalWordCount) {
+        dp[i] = dp[ans[i] + 1];
       } else {
         dp[i] = 0;
       }
@@ -1434,7 +1449,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   const auto hyphenBreaks = Hyphenator::breakOffsets(word, allowFallbackBreaks);
   breakInfos.insert(breakInfos.end(), hyphenBreaks.begin(), hyphenBreaks.end());
   if (breakInfos.empty()) {
-    if (allowFallbackBreaks && allowCharacterBreaks_) {
+    if (allowFallbackBreaks && (allowCharacterBreaks_ || wordWidths[wordIndex] > availableWidth)) {
       return splitTokenAtCodepointBoundary(wordIndex, availableWidth, renderer, fontId, wordWidths);
     }
     return false;
@@ -1470,7 +1485,9 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   }
 
   if (chosenWidth < 0) {
-    if (allowFallbackBreaks && allowCharacterBreaks_) {
+    // Nothing fits even on an empty line: break the token anywhere rather than letting it run
+    // off the page (CSS `overflow-wrap: anywhere`, e.g. long URLs like https://<api-domain>/...).
+    if (allowFallbackBreaks && (allowCharacterBreaks_ || wordWidths[wordIndex] > availableWidth)) {
       return splitTokenAtCodepointBoundary(wordIndex, availableWidth, renderer, fontId, wordWidths);
     }
     // No hyphenation point produced a prefix that fits in the remaining space.

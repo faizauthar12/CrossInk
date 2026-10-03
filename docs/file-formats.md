@@ -553,7 +553,9 @@ Binary layout:
 Version 84 appends one `bool monospace` byte to each serialized text block's
 block style, after `lineHeight`. Lines from `<pre>` or CSS `white-space:
 pre | pre-wrap | pre-line | break-spaces` set it and are measured and rendered with
-the built-in JetBrains Mono size whose line height best fits the reader font. Such
+the built-in JetBrains Mono size whose line height best fits 85% of the reader font
+(browsers draw generic `monospace` at 13px against a 16px body), and advance by that
+mono line height. Such
 lines keep source line breaks, indentation, and tab stops (8 columns), are never
 justified or hyphenated, and wrap overlong tokens at a codepoint. HTML5 sectioning
 elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`,

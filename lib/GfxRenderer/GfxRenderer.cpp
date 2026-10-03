@@ -2950,11 +2950,12 @@ void GfxRenderer::setMonospaceFonts(const std::initializer_list<int> fontIds) {
 
 int GfxRenderer::getMonospaceFontFor(const int textFontId) const {
   if (monospaceFontCount_ == 0) return textFontId;
-  const int target = getLineHeight(textFontId);
+  // Browsers shrink generic `monospace` to 13px against a 16px default (0.8125x); matching that
+  // keeps ~40 code columns on a 480px page, so long code lines wrap far less. Pick the tallest
+  // mono size whose line height fits within 85% of the reader font's.
+  const int target = getLineHeight(textFontId) * 85 / 100;
   int chosen = monospaceFontIds_[0];
   for (size_t i = 0; i < monospaceFontCount_; ++i) {
-    // Mono glyphs are wider than proportional ones; the tallest size that still fits the
-    // reader line height keeps more columns on screen and matches the paragraph rhythm.
     if (getLineHeight(monospaceFontIds_[i]) <= target) chosen = monospaceFontIds_[i];
   }
   return chosen;
