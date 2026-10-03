@@ -44,11 +44,14 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v91: Figure containers apply publisher alignment and spacing to chapter ornaments.
 // v94: Fieldset defaults add bordered containers and change page layout.
 // v95: Image-only paragraphs retain publisher alignment independently of prose.
-constexpr uint8_t SECTION_FILE_VERSION = 95;
+// v96: white-space/<pre> preserve line breaks and spacing in a monospace font, HTML5
+// sectioning tags are blocks, more list-style-type markers; TextBlock stores a monospace
+// flag.
+constexpr uint8_t SECTION_FILE_VERSION = 96;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD0;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD1;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +

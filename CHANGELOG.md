@@ -30,6 +30,8 @@
 - Render EPUB fieldsets as outlined boxes with padding, honoring publisher border styles and continuing across pages.
 - Show a one-time What's New screen after updating, with a one-click Update for an outdated language pack; reopen it anytime in Settings → System → Release Notes.
 - Choose a download folder for each OPDS server on the device or web portal, with options to use the shared default or SD root.
+- EPUB code blocks (`<pre>` and CSS `white-space: pre`, `pre-wrap`, `pre-line`) keep their line breaks, indentation, and tab alignment, and render in a built-in JetBrains Mono font matched to the reader font size.
+- Lists honour more `list-style-type` values: circle, square, decimal, lower/upper alpha, and lower/upper roman, including the `list-style` shorthand.
 
 ### Fixed
 
@@ -83,6 +85,8 @@
 - Preserve the selected SD reader font when font details temporarily cannot load, and free Download Fonts catalog memory before restoring it (#855).
 - Preserve fine detail when fitting oversized high-color BMP sleep wallpapers and boot images by averaging pixels before dithering.
 - Use GitHub Releases for font downloads in builds without a configured custom font host.
+- Code blocks in EPUBs are no longer collapsed into one justified, hyphenated paragraph.
+- HTML5 sectioning elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`, `footer`, `nav`, `main`, `address`, `dl`, `dt`, `dd`) start new paragraphs instead of running into the surrounding text.
 
 ### Changed
 

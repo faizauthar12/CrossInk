@@ -78,6 +78,43 @@ TEST_F(TextLayoutBackingTest, SameSerializedLinesAcrossPoolsFontsAndReadingAids)
     }
 }
 #ifndef PSRAM_REFERENCE
+TEST_F(TextLayoutBackingTest, PreformattedLinesNeitherJustifyNorHyphenate) {
+  // Font 0 stub: 6 px per character, 3 px per space. Width 60 fits "aa bb" (27 px) easily,
+  // so a justified paragraph would stretch the gap; a preformatted one must not.
+  fakeheap::reset(false);
+  BlockStyle style;  // alignment defaults to Justify
+  GfxRenderer renderer;
+  for (const bool preformatted : {false, true}) {
+    ParsedText text(false, false, /*hyphenation=*/true, false, false, 0, style);
+    text.setPreformatted(preformatted);
+    for (const char* word : {"aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh"})
+      text.addWord(word, EpdFontFamily::REGULAR);
+    std::vector<int16_t> secondWordX;
+    ASSERT_TRUE(text.layoutAndExtractLines(renderer, 0, 60, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+      if (line->wordCount() > 1) secondWordX.push_back(line->wordXpos(1));
+    }));
+    ASSERT_FALSE(secondWordX.empty());
+    if (preformatted) {
+      EXPECT_EQ(secondWordX.front(), 15);  // 12 px word + 3 px natural space
+    } else {
+      EXPECT_GT(secondWordX.front(), 15);  // justify stretched the gap
+    }
+  }
+
+  // An overlong token wraps at a codepoint, never with an inserted hyphen.
+  ParsedText code(false, false, true, false, false, 0, style);
+  code.setPreformatted(true);
+  code.addWord("git@github.com:YourGitHubNickName/zero2prod.git", EpdFontFamily::REGULAR);
+  std::string joined;
+  ASSERT_TRUE(code.layoutAndExtractLines(renderer, 0, 60, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+    for (uint16_t i = 0; i < line->wordCount(); ++i) {
+      EXPECT_EQ(line->wordFlags(i) & TextBlock::WORD_FLAG_INSERTED_HYPHEN, 0);
+      joined += line->wordText(i);
+    }
+  }));
+  EXPECT_EQ(joined, "git@github.com:YourGitHubNickName/zero2prod.git");
+}
+
 TEST_F(TextLayoutBackingTest, AllocationFailureReturnsWithoutPartialLinesOrLeaks) {
   fakeheap::external.fail = 1000;
   fakeheap::internal.largest = 1;

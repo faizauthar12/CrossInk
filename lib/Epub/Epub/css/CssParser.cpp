@@ -432,6 +432,36 @@ bool CssParser::tryInterpretLength(std::string_view val, CssLength& out) {
   return true;
 }
 
+// Unknown marker names leave the property unset so the list keeps its tag default.
+static bool tryInterpretListStyleType(std::string_view value, CssListStyleType& out) {
+  value = trimCssWhitespace(stripTrailingImportant(value));
+  struct Entry {
+    const char* name;
+    CssListStyleType type;
+  };
+  static constexpr Entry kTypes[] = {
+      {"none", CssListStyleType::None},
+      {"disc", CssListStyleType::Disc},
+      {"circle", CssListStyleType::Circle},
+      {"square", CssListStyleType::Square},
+      {"decimal", CssListStyleType::Decimal},
+      {"decimal-leading-zero", CssListStyleType::Decimal},
+      {"lower-alpha", CssListStyleType::LowerAlpha},
+      {"lower-latin", CssListStyleType::LowerAlpha},
+      {"upper-alpha", CssListStyleType::UpperAlpha},
+      {"upper-latin", CssListStyleType::UpperAlpha},
+      {"lower-roman", CssListStyleType::LowerRoman},
+      {"upper-roman", CssListStyleType::UpperRoman},
+  };
+  for (const auto& entry : kTypes) {
+    if (iequalsAscii(value, entry.name)) {
+      out = entry.type;
+      return true;
+    }
+  }
+  return false;
+}
+
 // Only border visibility is needed for <hr>; keep publisher dimensions and
 // colors out of layout. These helpers allocate no memory.
 bool tryBorderStyleSuppression(std::string_view value, bool& suppressed) {
@@ -613,15 +643,6 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
       style.initialLetter = static_cast<uint8_t>(std::clamp(lines, 1.0f, 4.0f));
       style.defined.initialLetter = 1;
     }
-  } else if (iequalsAscii(name, "white-space")) {
-    const auto mode = trimCssWhitespace(stripTrailingImportant(value));
-    if (iequalsAscii(mode, "pre") || iequalsAscii(mode, "pre-wrap") || iequalsAscii(mode, "break-spaces")) {
-      style.preserveWhitespace = true;
-      style.defined.whiteSpace = 1;
-    } else if (iequalsAscii(mode, "normal") || iequalsAscii(mode, "nowrap")) {
-      style.preserveWhitespace = false;
-      style.defined.whiteSpace = 1;
-    }
   } else if (parseBorderSuppression(name, value, style)) {
     return;
   }
@@ -793,9 +814,35 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
       style.defined.verticalAlign = 1;
     }
   } else if (iequalsAscii(name, "list-style-type")) {
-    const std::string_view listStyleValue = stripTrailingImportant(value);
-    style.listStyleType = iequalsAscii(listStyleValue, "none") ? CssListStyleType::None : CssListStyleType::Disc;
-    style.defined.listStyleType = 1;
+    if (tryInterpretListStyleType(value, style.listStyleType)) style.defined.listStyleType = 1;
+  } else if (iequalsAscii(name, "list-style")) {
+    // Shorthand: any token naming a marker type wins (position/image are ignored).
+    std::string_view rest = trimCssWhitespace(stripTrailingImportant(value));
+    while (!rest.empty()) {
+      const size_t space = rest.find_first_of(" \t");
+      if (tryInterpretListStyleType(rest.substr(0, space), style.listStyleType)) {
+        style.defined.listStyleType = 1;
+        break;
+      }
+      if (space == std::string_view::npos) break;
+      rest = trimCssWhitespace(rest.substr(space));
+    }
+  } else if (iequalsAscii(name, "white-space") || iequalsAscii(name, "white-space-collapse")) {
+    // Values per MDN: pre / pre-wrap / break-spaces / preserve keep spaces and newlines;
+    // pre-line / preserve-breaks keep newlines only. nowrap and normal collapse both
+    // (nowrap's no-wrap half is deliberately ignored: clipping would lose text on e-ink).
+    const std::string_view v = trimCssWhitespace(stripTrailingImportant(value));
+    if (iequalsAscii(v, "pre") || iequalsAscii(v, "pre-wrap") || iequalsAscii(v, "break-spaces") ||
+        iequalsAscii(v, "preserve") || iequalsAscii(v, "preserve nowrap") || iequalsAscii(v, "preserve wrap")) {
+      style.whiteSpace = CssWhiteSpace::Preserve;
+      style.defined.whiteSpace = 1;
+    } else if (iequalsAscii(v, "pre-line") || iequalsAscii(v, "preserve-breaks")) {
+      style.whiteSpace = CssWhiteSpace::PreserveBreaks;
+      style.defined.whiteSpace = 1;
+    } else if (iequalsAscii(v, "normal") || iequalsAscii(v, "nowrap") || iequalsAscii(v, "collapse")) {
+      style.whiteSpace = CssWhiteSpace::Normal;
+      style.defined.whiteSpace = 1;
+    }
   } else if (iequalsAscii(name, "page-break-before") || iequalsAscii(name, "break-before")) {
     bool pageBreakBefore = false;
     if (tryInterpretCssPageBreak(value, pageBreakBefore)) {
@@ -1388,7 +1435,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
       !writeByte(static_cast<uint8_t>(style.pageBreakAfter ? 1 : 0)) ||
       !writeByte(static_cast<uint8_t>(style.listStyleType)) || !writeByte(style.borderStyleSuppressed) ||
       !writeByte(style.borderWidthSuppressed) || !writeByte(style.borderStyleDefined) ||
-      !writeByte(style.borderWidthDefined) || !writeByte(style.preserveWhitespace)) {
+      !writeByte(style.borderWidthDefined) || !writeByte(static_cast<uint8_t>(style.whiteSpace))) {
     return false;
   }
 
@@ -1474,7 +1521,7 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   if (file.read(&pageBreakVal, 1) != 1) return false;
   style.pageBreakAfter = pageBreakVal != 0;
   uint8_t listStyleTypeVal = 0;
-  if (file.read(&listStyleTypeVal, 1) != 1 || listStyleTypeVal > static_cast<uint8_t>(CssListStyleType::None)) {
+  if (file.read(&listStyleTypeVal, 1) != 1 || listStyleTypeVal > static_cast<uint8_t>(CssListStyleType::UpperRoman)) {
     return false;
   }
   style.listStyleType = static_cast<CssListStyleType>(listStyleTypeVal);
@@ -1485,9 +1532,9 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
       (style.borderWidthSuppressed & ~style.borderWidthDefined) != 0)
     return false;
 
-  uint8_t whitespace = 0;
-  if (file.read(&whitespace, 1) != 1 || whitespace > 1) return false;
-  style.preserveWhitespace = whitespace != 0;
+  uint8_t whiteSpaceVal = 0;
+  if (file.read(&whiteSpaceVal, 1) != 1 || whiteSpaceVal > static_cast<uint8_t>(CssWhiteSpace::Preserve)) return false;
+  style.whiteSpace = static_cast<CssWhiteSpace>(whiteSpaceVal);
   for (auto& side : style.borders) {
     uint8_t raw = 0;
     if (file.read(&side.width, 1) != 1 || side.width > 8 || file.read(&raw, 1) != 1 || raw > 4) return false;

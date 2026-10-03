@@ -19,6 +19,7 @@ class SdCardFont;
 #include <cassert>
 #include <cstring>
 #include <deque>
+#include <initializer_list>
 #include <map>
 #include <string>
 #include <vector>
@@ -121,6 +122,12 @@ class GfxRenderer {
   // Explicit filename-only font ids, with built-in glyphs as the primary face.
   std::map<int, int> filenameFontMap_;
 
+  // Built-in monospace sizes for preformatted EPUB text, smallest first. Fixed-size
+  // static storage: no heap, registered once at boot.
+  static constexpr size_t MAX_MONOSPACE_FONTS = 4;
+  int monospaceFontIds_[MAX_MONOSPACE_FONTS] = {};
+  size_t monospaceFontCount_ = 0;
+
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
   void freeBwBufferChunks();
@@ -184,6 +191,11 @@ class GfxRenderer {
   int filenameFontId(int primaryFontId) const;
   bool setFilenameFallback(int primaryFontId, int compositeFontId, const EpdFont* regular, const EpdFont* bold);
   void clearFilenameFallbacks();
+  // Register monospace sizes (ascending). getMonospaceFontFor() picks the one whose line
+  // height is closest to (and not taller than) the reader font, so code keeps the reader's
+  // vertical rhythm; returns textFontId when none is registered.
+  void setMonospaceFonts(std::initializer_list<int> fontIds);
+  int getMonospaceFontFor(int textFontId) const;
   // Ensure SD card font glyph data is loaded for the given text. Called from layout code
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).

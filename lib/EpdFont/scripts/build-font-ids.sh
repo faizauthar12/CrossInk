@@ -40,6 +40,12 @@ emit_hash_define BITTER_14_FONT_ID \
 emit_hash_define BITTER_16_FONT_ID \
   ./bitter_16_regular.h ./bitter_16_bold.h ./bitter_16_bolditalic.h ./bitter_16_italic.h
 
+# Monospace (preformatted text)
+emit_hash_define JETBRAINSMONO_10_FONT_ID ./jetbrainsmono_10_regular.h
+emit_hash_define JETBRAINSMONO_12_FONT_ID ./jetbrainsmono_12_regular.h
+emit_hash_define JETBRAINSMONO_14_FONT_ID ./jetbrainsmono_14_regular.h
+emit_hash_define JETBRAINSMONO_16_FONT_ID ./jetbrainsmono_16_regular.h
+
 # UI fonts
 emit_hash_define UI_10_FONT_ID ./inter_10_regular.h ./inter_10_bold.h ./ui_symbols_10.h
 emit_hash_define UI_12_FONT_ID ./inter_12_regular.h ./inter_12_bold.h ./ui_symbols_10.h
@@ -51,6 +57,7 @@ echo "// Guard against any hash accidentally producing 0."
 for id in \
   LEXENDDECA_10_FONT_ID LEXENDDECA_12_FONT_ID LEXENDDECA_14_FONT_ID LEXENDDECA_16_FONT_ID \
   BITTER_10_FONT_ID BITTER_12_FONT_ID BITTER_14_FONT_ID BITTER_16_FONT_ID \
+  JETBRAINSMONO_10_FONT_ID JETBRAINSMONO_12_FONT_ID JETBRAINSMONO_14_FONT_ID JETBRAINSMONO_16_FONT_ID \
   UI_10_FONT_ID UI_12_FONT_ID SMALL_FONT_ID; do
   echo "static_assert(${id} != 0, \"Font ID collision with sentinel\");"
 done
