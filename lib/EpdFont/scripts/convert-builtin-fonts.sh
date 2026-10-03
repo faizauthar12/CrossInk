@@ -171,6 +171,15 @@ generate_reading_fonts() {
 # Built-in reader fonts retain the PHM fallback ranges, but exclude emoticons.
 generate_reading_fonts
 
+# Monospace for preformatted (<pre>, white-space) blocks. Regular only; tabular digits
+# (no --pnum) keep columns aligned; box drawing (U+2500-257F) covers directory trees.
+for size in ${READING_FONT_SIZES[@]}; do
+  python fontconvert.py jetbrainsmono_${size}_regular $size ../builtinFonts/source/JetBrainsMono/JetBrainsMono-Regular.ttf \
+    --additional-intervals 0x2500,0x257F --2bit --compress --darken-aa --zopfli \
+    > ../builtinFonts/jetbrainsmono_${size}_regular.h
+  echo "Generated ../builtinFonts/jetbrainsmono_${size}_regular.h"
+done
+
 # Shared fixed-size UI symbols
 bash ./generate-ui-symbols.sh
 

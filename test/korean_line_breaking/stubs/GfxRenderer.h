@@ -41,6 +41,7 @@ class GfxRenderer {
   TextVerticalBounds getTextVerticalBounds(int font, const char*, Args...) const {
     return {0, getFontAscenderSize(font)};
   }
+  int getMonospaceFontFor(int fontId) const { return fontId; }
   int getFontAscenderSize(int id) const { return 12 + id; }
   int getLineHeight(int id) const { return 16 + id; }
   static int characters(const char* text) {

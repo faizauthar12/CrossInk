@@ -313,7 +313,9 @@ int TextBlock::baselineOffset(int baseline, int ascender, EpdFontFamily::Style s
 }
 
 int TextBlock::resolvedFontId(const GfxRenderer& renderer, const int fontId) const {
-  return renderer.getFontIdForSize(fontId, blockStyle.fontSize);
+  const int sizedFontId = renderer.getFontIdForSize(fontId, blockStyle.fontSize);
+  // Preformatted lines use the mono face; every layout/geometry/render caller funnels here.
+  return blockStyle.monospace ? renderer.getMonospaceFontFor(sizedFontId) : sizedFontId;
 }
 
 void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, const int y,
@@ -600,7 +602,8 @@ bool TextBlock::serialize(Print& file) const {
          serialization::tryWritePod(file, blockStyle.directionDefined) &&
          serialization::tryWritePod(file, blockStyle.fontSize) &&
          serialization::tryWritePod(file, blockStyle.lineHeight) &&
-         serialization::tryWritePod(file, blockStyle.ruledTextOffset);
+         serialization::tryWritePod(file, blockStyle.ruledTextOffset) &&
+         serialization::tryWritePod(file, blockStyle.monospace);
 }
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
@@ -756,6 +759,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
       !serialization::tryReadPod(file, blockStyle.fontSize) ||
       !serialization::tryReadPod(file, blockStyle.lineHeight) ||
       !serialization::tryReadPod(file, blockStyle.ruledTextOffset) ||
+      !serialization::tryReadPod(file, blockStyle.monospace) ||
       (blockStyle.fontSize != 0 &&
        (blockStyle.fontSize < ScalableContentMinPointSize || blockStyle.fontSize > ScalableContentMaxPointSize))) {
     LOG_ERR("TXB", "Deserialization failed: truncated block style metadata");

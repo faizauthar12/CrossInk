@@ -5,6 +5,8 @@
 - Show a Delete button when opening a clipping on button-only readers (#936).
 - Support ten new Indic scripts when you using a compatible font. (CrossPoint #3787).
 - Add a Delete button below Open when viewing a clipping on touch readers.
+- EPUB code blocks (`<pre>` and CSS `white-space: pre`, `pre-wrap`, `pre-line`) keep their line breaks, indentation, and tab alignment, and render in a built-in JetBrains Mono font matched to the reader font size.
+- Lists honour more `list-style-type` values: circle, square, decimal, lower/upper alpha, and lower/upper roman, including the `list-style` shorthand.
 
 ### Changed
 
@@ -12,6 +14,8 @@
 
 - Stay in the selected chapter when following EPUB Contents links, including links to positions within a chapter.
 - Indent EPUB blockquotes that rely on default margins (#956).
+- Code blocks in EPUBs are no longer collapsed into one justified, hyphenated paragraph.
+- HTML5 sectioning elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`, `footer`, `nav`, `main`, `address`, `dl`, `dt`, `dd`) start new paragraphs instead of running into the surrounding text.
 
 ## [v2.0.0] - 2026-11-19
 
