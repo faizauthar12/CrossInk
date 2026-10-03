@@ -40,6 +40,8 @@
 - Jump to a percentage in XTC and XTCH books from the reader menu, using the same slider and numeric keypad as EPUB books.
 - Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Enable Plugins in Settings → System, then open Plugins from Home. Download the optional Plugin Hub to discover, install, and update compatible plugins.
 - Center Status Bar option for the top and bottom reader status bars, which centers all items in one row joined by a •, ·, –, or | separator.
+- EPUB code blocks (`<pre>` and CSS `white-space: pre`, `pre-wrap`, `pre-line`) keep their line breaks, indentation, and tab alignment, and render in a built-in JetBrains Mono font matched to the reader font size.
+- Lists honour more `list-style-type` values: circle, square, decimal, lower/upper alpha, and lower/upper roman, including the `list-style` shorthand.
 
 ### Fixed
 
@@ -124,6 +126,8 @@
 - Reserve the retained TLS input buffer after sending bulk HTTPS requests, including OPDS book downloads, to avoid later full-record allocation failures when a server ignores the small-record request (adapted from Eszter Schuffert, FreeInk SDK #154 and #155 via CrossPoint #4167).
 - Use full refreshes on SSD2677 Sticky displays when previous-frame memory is unavailable, preventing stale black pixels.
 - Reduce memory used by OPDS book feeds with long descriptions, release partial catalogs after failed requests, and stop transfers promptly when parsing fails.
+- Code blocks in EPUBs are no longer collapsed into one justified, hyphenated paragraph.
+- HTML5 sectioning elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`, `footer`, `nav`, `main`, `address`, `dl`, `dt`, `dd`) start new paragraphs instead of running into the surrounding text.
 
 ### Changed
 

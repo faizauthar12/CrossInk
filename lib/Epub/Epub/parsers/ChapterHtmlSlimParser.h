@@ -71,6 +71,23 @@ class ChapterHtmlSlimParser {
   int referenceExcludedUntilDepth = INT_MAX;
   uint16_t currentTextRunBytes = 0;
   bool nextWordContinues = false;  // true when next flushed word attaches to previous (inline element boundary)
+  // Inherited CSS white-space, scoped by element depth (<pre> defaults to Preserve).
+  struct WhiteSpaceScope {
+    int depth;
+    CssWhiteSpace mode;
+  };
+  static constexpr uint8_t MAX_WHITE_SPACE_SCOPES = 8;
+  WhiteSpaceScope whiteSpaceScopes_[MAX_WHITE_SPACE_SCOPES] = {};
+  uint8_t whiteSpaceScopeCount_ = 0;
+  // Preserved newlines are emitted lazily so a trailing newline before </pre> adds no blank line.
+  uint8_t pendingPreservedBreaks = 0;
+  uint16_t pendingPreservedSpaces = 0;
+  uint16_t preservedColumn = 0;  // codepoints since the last preserved newline, for tab stops
+  CssWhiteSpace whiteSpaceMode() const {
+    return whiteSpaceScopeCount_ > 0 ? whiteSpaceScopes_[whiteSpaceScopeCount_ - 1].mode : CssWhiteSpace::Normal;
+  }
+  void emitPreservedBreaks();
+  void emitPreservedSpaces(uint32_t visibleOffset, uint32_t referenceOffset);
   std::unique_ptr<ParsedText> currentTextBlock = nullptr;
   bool emptyTextBlockAfterImage = false;  // Container insets must not leak into following text.
   // Ruby text state
@@ -155,7 +172,6 @@ class ChapterHtmlSlimParser {
     bool hasSup = false, sup = false;
     bool hasSub = false, sub = false;
     bool hasSmallCaps = false, smallCaps = false;
-    bool hasWhiteSpace = false, preserveWhitespace = false;
     uint8_t fontSize = 0;
     bool hasFontFamily = false;
     uint32_t fontFamily = 0;
@@ -179,7 +195,6 @@ class ChapterHtmlSlimParser {
   bool effectiveSup = false;
   bool effectiveSub = false;
   bool effectiveSmallCaps = false;
-  bool effectivePreserveWhitespace = false;
   uint8_t effectiveInlineFontSize = 0;
   void applyInlineFontSize(StyleStackEntry& entry, const CssStyle& css, const char* tag);
 
@@ -253,6 +268,7 @@ class ChapterHtmlSlimParser {
   struct ListContext {
     bool ordered = false;
     bool styleNone = false;
+    CssListStyleType markerType = CssListStyleType::Disc;
     int32_t nextValue = 1;
     int depth = 0;
   };

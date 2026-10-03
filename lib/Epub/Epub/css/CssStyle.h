@@ -75,8 +75,26 @@ enum class CssDisplay : uint8_t { Block = 0, None = 1, Inline = 2 };
 // Vertical alignment options for inline elements (e.g. superscript/subscript)
 enum class CssVerticalAlign : uint8_t { Baseline = 0, Super = 1, Sub = 2 };
 
-// List markers supported by the EPUB renderer.
-enum class CssListStyleType : uint8_t { Disc = 0, None = 1 };
+// List markers supported by the EPUB renderer. Append only: values are cached on SD.
+// Circle/Square render as glyphs present in every built-in reader font (U+25E6/U+25AA
+// are absent), so they use – and ▪-less fallbacks; see listMarkerFor().
+enum class CssListStyleType : uint8_t {
+  Disc = 0,
+  None = 1,
+  Circle = 2,
+  Square = 3,
+  Decimal = 4,
+  LowerAlpha = 5,
+  UpperAlpha = 6,
+  LowerRoman = 7,
+  UpperRoman = 8,
+};
+
+// white-space, reduced to the two axes the layout engine acts on.
+// Normal: collapse spaces and newlines. PreserveBreaks (pre-line): keep newlines,
+// collapse spaces. Preserve (pre, pre-wrap, break-spaces): keep both. Every mode
+// still wraps at the viewport edge; e-ink has no horizontal scroll.
+enum class CssWhiteSpace : uint8_t { Normal = 0, PreserveBreaks = 1, Preserve = 2 };
 
 enum class CssBorderStyle : uint8_t { None, Solid, Double, Dotted, Dashed };
 struct CssBorderSide {
@@ -205,12 +223,12 @@ struct CssStyle {
       if (side.visible()) return true;
     return false;
   }
-  bool preserveWhitespace = false;
   bool backgroundBlack = false;                                 // Simple black inline/block background support
   CssVerticalAlign verticalAlign = CssVerticalAlign::Baseline;  // vertical-align (super/sub positioning)
   bool pageBreakBefore = false;
   bool pageBreakAfter = false;
   CssListStyleType listStyleType = CssListStyleType::Disc;
+  CssWhiteSpace whiteSpace = CssWhiteSpace::Normal;
 
   // Four edge bits (top/right/bottom/left). Track style and width separately so
   // later declarations can restore one without losing suppression by the other.
@@ -243,10 +261,6 @@ struct CssStyle {
     if (base.defined.initialLetter) {
       initialLetter = base.initialLetter;
       defined.initialLetter = 1;
-    }
-    if (base.hasWhiteSpace()) {
-      preserveWhitespace = base.preserveWhitespace;
-      defined.whiteSpace = 1;
     }
     if (base.defined.border) {
       for (size_t edge = 0; edge < 4; ++edge) {
@@ -354,6 +368,10 @@ struct CssStyle {
     if (base.hasListStyleType()) {
       listStyleType = base.listStyleType;
       defined.listStyleType = 1;
+    }
+    if (base.hasWhiteSpace()) {
+      whiteSpace = base.whiteSpace;
+      defined.whiteSpace = 1;
     }
   }
 

@@ -25,6 +25,7 @@ class GfxRenderer {
     return 12 + id;
   }
   int getLineHeight(int id) const { return 16 + id; }
+  int getMonospaceFontFor(int fontId) const { return fontId; }
   static int characters(const char* text) {
     int n = 0;
     for (; *text; ++text)

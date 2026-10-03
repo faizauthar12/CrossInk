@@ -213,7 +213,7 @@ TEST_F(CssArenaBackingTest, PublisherDecorationsAndContextSurviveAllCacheBacking
     EXPECT_EQ(style.borders[0].width, 2);
     EXPECT_EQ(style.borders[0].style, CssBorderStyle::Dashed);
     EXPECT_TRUE(style.shaded);
-    EXPECT_TRUE(style.preserveWhitespace);
+    EXPECT_EQ(style.whiteSpace, CssWhiteSpace::Preserve);
     auto cap = css.resolveStyle("p", "note", {}, {}, true);
     EXPECT_EQ(cap.initialLetter, 3);
     EXPECT_TRUE(cap.floatLeft);

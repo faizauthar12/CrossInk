@@ -878,6 +878,25 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 101
+
+Version 101 appends one `bool monospace` byte to each serialized text block's
+block style, after `lineHeight`. Lines from `<pre>` or CSS `white-space:
+pre | pre-wrap | pre-line | break-spaces` set it and are measured and rendered with
+the built-in JetBrains Mono size whose line height best fits the reader font. Such
+lines keep source line breaks, indentation, and tab stops (8 columns), are never
+justified or hyphenated, and wrap overlong tokens at a codepoint. HTML5 sectioning
+elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`,
+`footer`, `nav`, `main`, `address`, `dl`, `dt`, `dd`) now start blocks, and lists
+honour more `list-style-type` values.
+Complete files use byte `101`; suspended partials use `0xD6`. Version `100` / `0xD5` and earlier caches are rejected as stale.
+
+CSS cache revision `24` replaces the boolean whitespace byte with a `whiteSpace`
+enum byte in the same position (0 normal, 1 pre-line, 2 preserve); the fixed
+style payload stays 96 bytes and defined bit 25 is unchanged. `listStyleType` may
+now hold values 2-8 (circle, square, decimal, lower/upper alpha, lower/upper
+roman). Older CSS caches rebuild automatically.
+
 ### Version 100
 
 Complete caches use `100`; suspended partial caches use `0xD5`. The payload

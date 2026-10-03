@@ -39,6 +39,12 @@
 
 #endif
 
+// Monospace for <pre>/white-space blocks. Regular only: bold/italic resolve to it.
+#include <builtinFonts/jetbrainsmono_10_regular.h>
+#include <builtinFonts/jetbrainsmono_12_regular.h>
+#include <builtinFonts/jetbrainsmono_14_regular.h>
+#include <builtinFonts/jetbrainsmono_16_regular.h>
+
 // UI fonts - no emoji or PHM variants.
 #include <builtinFonts/inter_10_bold.h>
 #include <builtinFonts/inter_10_regular.h>

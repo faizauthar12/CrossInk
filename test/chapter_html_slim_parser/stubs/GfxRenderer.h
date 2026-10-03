@@ -49,6 +49,7 @@ class GfxRenderer {
     return true;
   }
   int getLineHeight(int id) const { return scalableBaseSize ? getFontPointSize(id) * 2 : 16; }
+  int getMonospaceFontFor(int fontId) const { return fontId; }
   int getTextWidth(int, const char*, EpdFontFamily::Style = EpdFontFamily::REGULAR) const { return 0; }
   int getTextAdvanceX(int id, const char* text, EpdFontFamily::Style, uint32_t = 0, int8_t = 0) const {
     return static_cast<int>(std::strlen(text)) * textAdvancePerChar * (scalableBaseSize ? getFontPointSize(id) : 1) /
