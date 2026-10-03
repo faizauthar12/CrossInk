@@ -2937,6 +2937,29 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
   return fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
 }
 
+void GfxRenderer::setMonospaceFonts(const std::initializer_list<int> fontIds) {
+  monospaceFontCount_ = 0;
+  for (const int id : fontIds) {
+    if (monospaceFontCount_ >= MAX_MONOSPACE_FONTS) {
+      LOG_ERR("GFX", "Too many monospace fonts; ignoring %d", id);
+      break;
+    }
+    monospaceFontIds_[monospaceFontCount_++] = id;
+  }
+}
+
+int GfxRenderer::getMonospaceFontFor(const int textFontId) const {
+  if (monospaceFontCount_ == 0) return textFontId;
+  const int target = getLineHeight(textFontId);
+  int chosen = monospaceFontIds_[0];
+  for (size_t i = 0; i < monospaceFontCount_; ++i) {
+    // Mono glyphs are wider than proportional ones; the tallest size that still fits the
+    // reader line height keeps more columns on screen and matches the paragraph rhythm.
+    if (getLineHeight(monospaceFontIds_[i]) <= target) chosen = monospaceFontIds_[i];
+  }
+  return chosen;
+}
+
 int GfxRenderer::getLineHeight(const int fontId) const {
 #if CROSSINK_SCALABLE_FONTS
   ScalableFontAccess access;

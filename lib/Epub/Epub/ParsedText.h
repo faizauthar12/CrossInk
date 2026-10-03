@@ -75,6 +75,9 @@ class ParsedText {
   // buffered. The next layout pass must not apply first-line paragraph rules.
   bool isContinuation_ = false;
   bool allowCharacterBreaks_ = false;
+  // white-space: pre/pre-wrap/pre-line content: no justify, no indent, overflow splits
+  // at a codepoint without an inserted hyphen.
+  bool preformatted_ = false;
   std::vector<std::string> reorderedWordsScratch;
   std::vector<EpdFontFamily::Style> reorderedStylesScratch;
   std::vector<bool> reorderedContinuesScratch;
@@ -158,6 +161,8 @@ class ParsedText {
   std::string getRubyTextAt(size_t index) const { return index < rubyTexts.size() ? rubyTexts[index] : std::string(); }
   void ensureRubyCapacity();
   void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
+  void setPreformatted(const bool preformatted) { preformatted_ = preformatted; }
+  bool isPreformatted() const { return preformatted_; }
   BlockStyle& getBlockStyle() { return blockStyle; }
   size_t size() const { return words.size(); }
   bool isEmpty() const { return words.empty(); }

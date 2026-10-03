@@ -43,6 +43,13 @@ struct BlockStyle {
   // a full line-height gap when the <br> block stays empty (section-break use case).
   // NOT propagated through getCombinedBlockStyle so it can't leak into sibling blocks.
   bool fromBrElement = false;
+  // Set on a preformatted source line that ends at a preserved newline: the next line
+  // belongs to the same block, so makePages() skips the extra paragraph gap. Not merged.
+  bool suppressParagraphSpacing = false;
+  // Preformatted text: laid out and rendered with renderer.getMonospaceFontFor() (see
+  // TextBlock::resolvedFontId).
+  // A flag rather than a font id so caches survive font/size changes. Serialized per line.
+  bool monospace = false;
 
   // Combined insets (margin + padding)
   [[nodiscard]] int16_t leftInset() const { return marginLeft + paddingLeft; }
@@ -107,6 +114,7 @@ struct BlockStyle {
     }
     // fromBrElement is consumed by startNewTextBlock and should not leak through ancestor style merging.
     result.fromBrElement = false;
+    result.suppressParagraphSpacing = false;
 
     // Direction is inherited independently of the horizontal/vertical box model.
     if (!child.directionDefined && directionDefined) {

@@ -69,6 +69,23 @@ class ChapterHtmlSlimParser {
   int referenceExcludedUntilDepth = INT_MAX;
   uint16_t currentTextRunBytes = 0;
   bool nextWordContinues = false;  // true when next flushed word attaches to previous (inline element boundary)
+  // Inherited CSS white-space, scoped by element depth (<pre> defaults to Preserve).
+  struct WhiteSpaceScope {
+    int depth;
+    CssWhiteSpace mode;
+  };
+  static constexpr uint8_t MAX_WHITE_SPACE_SCOPES = 8;
+  WhiteSpaceScope whiteSpaceScopes_[MAX_WHITE_SPACE_SCOPES] = {};
+  uint8_t whiteSpaceScopeCount_ = 0;
+  // Preserved newlines are emitted lazily so a trailing newline before </pre> adds no blank line.
+  uint8_t pendingPreservedBreaks = 0;
+  uint16_t pendingPreservedSpaces = 0;
+  uint16_t preservedColumn = 0;  // codepoints since the last preserved newline, for tab stops
+  CssWhiteSpace whiteSpaceMode() const {
+    return whiteSpaceScopeCount_ > 0 ? whiteSpaceScopes_[whiteSpaceScopeCount_ - 1].mode : CssWhiteSpace::Normal;
+  }
+  void emitPreservedBreaks();
+  void emitPreservedSpaces(uint32_t visibleOffset, uint32_t referenceOffset);
   std::unique_ptr<ParsedText> currentTextBlock = nullptr;
   // Ruby text state
   bool inRuby = false;
@@ -209,6 +226,7 @@ class ChapterHtmlSlimParser {
   struct ListContext {
     bool ordered = false;
     bool styleNone = false;
+    CssListStyleType markerType = CssListStyleType::Disc;
     int32_t nextValue = 1;
     int depth = 0;
   };

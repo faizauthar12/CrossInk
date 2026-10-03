@@ -633,6 +633,130 @@ TEST_F(ChapterHtmlSlimParserTest, HiddenNestedListDoesNotResetOuterCounter) {
   EXPECT_EQ(parser.currentTextBlock->words[0], "2.");
 }
 
+// --- white-space / <pre> ---------------------------------------------------
+
+void feed(ChapterHtmlSlimParser& p, const char* text) { ChapterHtmlSlimParser::characterData(&p, text, strlen(text)); }
+
+TEST(CssWhiteSpaceTest, ParsesMdnKeywords) {
+  EXPECT_EQ(CssParser::parseInlineStyle("white-space: pre").whiteSpace, CssWhiteSpace::Preserve);
+  EXPECT_EQ(CssParser::parseInlineStyle("white-space: pre-wrap !important").whiteSpace, CssWhiteSpace::Preserve);
+  EXPECT_EQ(CssParser::parseInlineStyle("white-space: break-spaces").whiteSpace, CssWhiteSpace::Preserve);
+  EXPECT_EQ(CssParser::parseInlineStyle("white-space: pre-line").whiteSpace, CssWhiteSpace::PreserveBreaks);
+  const CssStyle nowrap = CssParser::parseInlineStyle("white-space: nowrap");
+  EXPECT_TRUE(nowrap.hasWhiteSpace());
+  EXPECT_EQ(nowrap.whiteSpace, CssWhiteSpace::Normal);
+  EXPECT_FALSE(CssParser::parseInlineStyle("white-space: bogus").hasWhiteSpace());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, NormalWhiteSpaceStillCollapses) {
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  feed(parser, "a   \n  b");
+  parser.flushPartWordBuffer();
+  ASSERT_EQ(parser.currentTextBlock->size(), 2u);
+  EXPECT_FALSE(parser.currentTextBlock->isPreformatted());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreWrapKeepsSpaceRunsAsGluedSpaceTokens) {
+  const XML_Char* attributes[] = {"style", "white-space: pre-wrap", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "div", attributes);
+  feed(parser, "git   remote");
+  parser.flushPartWordBuffer();
+
+  const auto& block = *parser.currentTextBlock;
+  ASSERT_EQ(block.size(), 4u);
+  EXPECT_EQ(block.words[0], "git");
+  EXPECT_EQ(block.words[1], " ");
+  EXPECT_EQ(block.words[2], " ");
+  EXPECT_EQ(block.words[3], "remote");
+  // The first space stays a normal (breakable) gap; the rest are glued width.
+  EXPECT_FALSE(block.wordContinues[1]);
+  EXPECT_TRUE(block.wordContinues[2]);
+  EXPECT_TRUE(block.wordContinues[3]);
+  EXPECT_TRUE(block.isPreformatted());
+  EXPECT_FALSE(block.hyphenationEnabled);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreSplitsSourceLinesAndKeepsIndentWithoutCss) {
+  parser.cssParser = nullptr;  // <pre> must work with "embedded style" off
+  ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+  feed(parser, "\nzero2prod/\n  Cargo.toml\n");
+  ASSERT_NE(parser.currentPage, nullptr);
+  EXPECT_EQ(parser.currentPage->elements.size(), 1u);  // leading newline added no blank line
+
+  const auto& line = *parser.currentTextBlock;
+  ASSERT_EQ(line.size(), 3u);
+  EXPECT_EQ(line.words[0], " ");
+  EXPECT_EQ(line.words[1], " ");
+  EXPECT_EQ(line.words[2], "Cargo.toml");
+  EXPECT_TRUE(line.wordContinues[2]);
+  EXPECT_EQ(line.resolveFirstLineIndent(true, renderer, 0), 0);
+
+  ChapterHtmlSlimParser::endElement(&parser, "pre");
+  EXPECT_EQ(parser.whiteSpaceScopeCount_, 0u);
+  EXPECT_EQ(parser.pendingPreservedBreaks, 0u);  // trailing newline is not content
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  EXPECT_FALSE(parser.currentTextBlock->isPreformatted());  // reused block left </pre> scope
+  feed(parser, "a   b");
+  parser.flushPartWordBuffer();
+  EXPECT_EQ(parser.currentTextBlock->size(), 2u);  // scope ended with </pre>
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreExpandsTabsToEightColumnStops) {
+  ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+  feed(parser, "ab\tc");
+  parser.flushPartWordBuffer();
+  // "ab" + tab to column 8 = 6 spaces: 1 breakable gap + 5 glued tokens.
+  ASSERT_EQ(parser.currentTextBlock->size(), 7u);
+  EXPECT_EQ(parser.currentTextBlock->words[6], "c");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreLineKeepsBreaksButCollapsesSpaces) {
+  const XML_Char* attributes[] = {"style", "white-space: pre-line", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "div", attributes);
+  feed(parser, "a    b\n   c");
+  ASSERT_NE(parser.currentPage, nullptr);
+  EXPECT_EQ(parser.currentPage->elements.size(), 1u);
+  parser.flushPartWordBuffer();
+  ASSERT_EQ(parser.currentTextBlock->size(), 1u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "c");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, Html5SectioningTagsStartNewBlocks) {
+  for (const char* tag : {"section", "figure", "figcaption", "aside", "dt", "dd", "pre"}) {
+    ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+    feed(parser, "before");
+    ChapterHtmlSlimParser::endElement(&parser, "p");
+    ChapterHtmlSlimParser::startElement(&parser, tag, nullptr);
+    EXPECT_TRUE(parser.currentTextBlock->isEmpty()) << tag;
+    ChapterHtmlSlimParser::endElement(&parser, tag);
+  }
+}
+
+// --- list-style-type -------------------------------------------------------
+
+std::string firstMarkerFor(ChapterHtmlSlimParser& p, const char* listTag, const char* style, const char* start) {
+  const XML_Char* attributes[] = {"style", style, start ? "start" : nullptr, start, nullptr};
+  ChapterHtmlSlimParser::startElement(&p, listTag, attributes);
+  ChapterHtmlSlimParser::startElement(&p, "li", nullptr);
+  std::string marker = p.currentTextBlock->size() == 1 ? p.currentTextBlock->words[0] : std::string("<none>");
+  ChapterHtmlSlimParser::endElement(&p, "li");
+  ChapterHtmlSlimParser::endElement(&p, listTag);
+  return marker;
+}
+
+TEST_F(ChapterHtmlSlimParserTest, RendersCssListStyleTypes) {
+  EXPECT_EQ(firstMarkerFor(parser, "ul", "list-style-type: disc", nullptr), "\xe2\x80\xa2");
+  EXPECT_EQ(firstMarkerFor(parser, "ul", "list-style-type: circle", nullptr), "\xe2\x80\x93");
+  EXPECT_EQ(firstMarkerFor(parser, "ul", "list-style-type: square", nullptr), "\xe2\x88\x99");
+  EXPECT_EQ(firstMarkerFor(parser, "ul", "list-style-type: decimal", nullptr), "1.");
+  EXPECT_EQ(firstMarkerFor(parser, "ol", "list-style-type: lower-alpha", "3"), "c.");
+  EXPECT_EQ(firstMarkerFor(parser, "ol", "list-style-type: upper-roman", "1994"), "MCMXCIV.");
+  EXPECT_EQ(firstMarkerFor(parser, "ol", "list-style-type: lower-roman", "4"), "iv.");
+  EXPECT_EQ(firstMarkerFor(parser, "ol", "list-style-type: upper-alpha", "27"), "27.");  // decimal fallback
+  EXPECT_EQ(firstMarkerFor(parser, "ol", "list-style: square inside", nullptr), "\xe2\x88\x99");
+  EXPECT_EQ(firstMarkerFor(parser, "ol", "list-style-type: bogus", "2"), "2.");  // keeps tag default
+}
+
 }  // namespace
 
 namespace {

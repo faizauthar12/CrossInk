@@ -19,6 +19,7 @@ class SdCardFont;
 #include <cassert>
 #include <cstring>
 #include <deque>
+#include <initializer_list>
 #include <map>
 #include <string>
 #include <vector>
@@ -117,6 +118,12 @@ class GfxRenderer {
   // app-level SD font setup when an SD family is loaded. See resolveTextFontId().
   std::map<int, int> fallbackFontMap_;
 
+  // Built-in monospace sizes for preformatted EPUB text, smallest first. Fixed-size
+  // static storage: no heap, registered once at boot.
+  static constexpr size_t MAX_MONOSPACE_FONTS = 4;
+  int monospaceFontIds_[MAX_MONOSPACE_FONTS] = {};
+  size_t monospaceFontCount_ = 0;
+
   // If `text` contains a CJK codepoint that `fontId` cannot render and `fontId`
   // has a registered fallback, returns the fallback id; otherwise returns
   // fontId unchanged. The whole string is routed as a unit so each draw/measure
@@ -185,6 +192,11 @@ class GfxRenderer {
   // setFallbackFont maps a primary UI font id to an SD font id of the same size.
   void setFallbackFont(int primaryFontId, int fallbackFontId) { fallbackFontMap_[primaryFontId] = fallbackFontId; }
   void clearFallbackFonts() { fallbackFontMap_.clear(); }
+  // Register monospace sizes (ascending). getMonospaceFontFor() picks the one whose line
+  // height is closest to (and not taller than) the reader font, so code keeps the reader's
+  // vertical rhythm; returns textFontId when none is registered.
+  void setMonospaceFonts(std::initializer_list<int> fontIds);
+  int getMonospaceFontFor(int textFontId) const;
   // Ensure SD card font glyph data is loaded for the given text. Called from layout code
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).

@@ -75,8 +75,26 @@ enum class CssDisplay : uint8_t { Block = 0, None = 1, Inline = 2 };
 // Vertical alignment options for inline elements (e.g. superscript/subscript)
 enum class CssVerticalAlign : uint8_t { Baseline = 0, Super = 1, Sub = 2 };
 
-// List markers supported by the EPUB renderer.
-enum class CssListStyleType : uint8_t { Disc = 0, None = 1 };
+// List markers supported by the EPUB renderer. Append only: values are cached on SD.
+// Circle/Square render as glyphs present in every built-in reader font (U+25E6/U+25AA
+// are absent), so they use – and ▪-less fallbacks; see listMarkerFor().
+enum class CssListStyleType : uint8_t {
+  Disc = 0,
+  None = 1,
+  Circle = 2,
+  Square = 3,
+  Decimal = 4,
+  LowerAlpha = 5,
+  UpperAlpha = 6,
+  LowerRoman = 7,
+  UpperRoman = 8,
+};
+
+// white-space, reduced to the two axes the layout engine acts on.
+// Normal: collapse spaces and newlines. PreserveBreaks (pre-line): keep newlines,
+// collapse spaces. Preserve (pre, pre-wrap, break-spaces): keep both. Every mode
+// still wraps at the viewport edge; e-ink has no horizontal scroll.
+enum class CssWhiteSpace : uint8_t { Normal = 0, PreserveBreaks = 1, Preserve = 2 };
 
 // Bitmask for tracking which properties have been explicitly set
 struct CssPropertyFlags {
@@ -104,6 +122,7 @@ struct CssPropertyFlags {
   uint32_t fontVariantCaps : 1;
   uint32_t listStyleType : 1;
   uint32_t fontSize : 1;
+  uint32_t whiteSpace : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -129,13 +148,14 @@ struct CssPropertyFlags {
         pageBreakAfter(0),
         fontVariantCaps(0),
         listStyleType(0),
-        fontSize(0) {}
+        fontSize(0),
+        whiteSpace(0) {}
 
   [[nodiscard]] bool anySet() const {
     return fontSize || textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop ||
            marginBottom || marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight ||
            imageHeight || imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
-           pageBreakAfter || fontVariantCaps || listStyleType;
+           pageBreakAfter || fontVariantCaps || listStyleType || whiteSpace;
   }
 
   void clearAll() {
@@ -143,7 +163,7 @@ struct CssPropertyFlags {
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
-    pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = fontSize = 0;
+    pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = fontSize = whiteSpace = 0;
   }
 };
 
@@ -179,6 +199,7 @@ struct CssStyle {
   bool pageBreakBefore = false;
   bool pageBreakAfter = false;
   CssListStyleType listStyleType = CssListStyleType::Disc;
+  CssWhiteSpace whiteSpace = CssWhiteSpace::Normal;
 
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
@@ -281,6 +302,10 @@ struct CssStyle {
       listStyleType = base.listStyleType;
       defined.listStyleType = 1;
     }
+    if (base.hasWhiteSpace()) {
+      whiteSpace = base.whiteSpace;
+      defined.whiteSpace = 1;
+    }
   }
 
   [[nodiscard]] bool hasFontSize() const { return defined.fontSize; }
@@ -307,6 +332,7 @@ struct CssStyle {
   [[nodiscard]] bool hasPageBreakAfter() const { return defined.pageBreakAfter; }
   [[nodiscard]] bool hasFontVariantCaps() const { return defined.fontVariantCaps; }
   [[nodiscard]] bool hasListStyleType() const { return defined.listStyleType; }
+  [[nodiscard]] bool hasWhiteSpace() const { return defined.whiteSpace; }
 
   void reset() {
     textAlign = CssTextAlign::Left;
@@ -325,6 +351,7 @@ struct CssStyle {
     pageBreakBefore = false;
     pageBreakAfter = false;
     listStyleType = CssListStyleType::Disc;
+    whiteSpace = CssWhiteSpace::Normal;
     defined.clearAll();
   }
 };

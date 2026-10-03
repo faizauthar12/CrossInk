@@ -20,8 +20,10 @@
 #include <GfxRenderer.h>
 
 namespace {
-constexpr uint8_t kFullVersion = 83;
-constexpr uint8_t kPartialVersion = 0xC4;
+constexpr uint8_t kFullVersion = 84;
+constexpr uint8_t kPartialVersion = 0xC5;
+constexpr uint8_t kV161FullVersion = 83;
+constexpr uint8_t kV161PartialVersion = 0xC4;
 constexpr uint8_t kPreviousFullVersion = 82;
 constexpr uint8_t kPreviousPartialVersion = 0xC3;
 constexpr uint8_t kOlderFullVersion = 79;
@@ -164,9 +166,9 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
   for (const uint8_t staleVersion :
-       {kPreviousFullVersion, kPreviousPartialVersion, kOlderFullVersion, kOlderPartialVersion, kEarlierFullVersion,
-        kEarlierPartialVersion, kLastReleaseFullVersion, kLastReleasePartialVersion,
-        kPreviousReleasePrepPartialVersion}) {
+       {kV161FullVersion, kV161PartialVersion, kPreviousFullVersion, kPreviousPartialVersion, kOlderFullVersion,
+        kOlderPartialVersion, kEarlierFullVersion, kEarlierPartialVersion, kLastReleaseFullVersion,
+        kLastReleasePartialVersion, kPreviousReleasePrepPartialVersion}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);

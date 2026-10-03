@@ -871,7 +871,7 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
   const bool naturalAlign =
       blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::None ||
       (blockStyle.isRtl ? blockStyle.alignment == CssTextAlign::Right : blockStyle.alignment == CssTextAlign::Left);
-  if (!isFirstLine || isContinuation_ || !naturalAlign) {
+  if (!isFirstLine || isContinuation_ || !naturalAlign || preformatted_) {
     return 0;
   }
   if (blockStyle.textIndentDefined) {
@@ -1419,6 +1419,12 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   const auto style = wordStyles[wordIndex];
   const int leadingPadding = inlinePaddingBefore(wordIndex);
 
+  if (preformatted_) {
+    // Code must not gain a synthetic hyphen; wrap an overlong token at a codepoint instead.
+    return allowFallbackBreaks &&
+           splitTokenAtCodepointBoundary(wordIndex, availableWidth, renderer, fontId, wordWidths);
+  }
+
   if (allowFallbackBreaks && isPathologicalUnbrokenToken(word)) {
     return splitTokenAtCodepointBoundary(wordIndex, availableWidth, renderer, fontId, wordWidths);
   }
@@ -1721,10 +1727,14 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
   // Calculate spacing (account for indent reducing effective page width on first line)
   const int effectivePageWidth = pageWidth - firstLineIndent;
   const bool isLastLine = breakIndex == lineBreakIndices.size() - 1;
-  const CssTextAlign effectiveAlignment =
+  CssTextAlign effectiveAlignment =
       (blockStyle.isRtl && !blockStyle.textAlignDefined && blockStyle.alignment == CssTextAlign::Left)
           ? CssTextAlign::Right
           : blockStyle.alignment;
+  if (preformatted_ && (effectiveAlignment == CssTextAlign::Justify || effectiveAlignment == CssTextAlign::None)) {
+    // Justify would stretch the preserved spaces and break column alignment.
+    effectiveAlignment = blockStyle.isRtl ? CssTextAlign::Right : CssTextAlign::Left;
+  }
 
   // Keep the visual overhang of edge ruby groups inside the page margins.
   const int spareSpace = effectivePageWidth - extraStartOffset - extraEndOffset - lineWordWidthSum - totalNaturalGaps;

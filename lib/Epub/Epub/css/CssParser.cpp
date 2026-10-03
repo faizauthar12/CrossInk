@@ -70,8 +70,8 @@ constexpr size_t MAX_SELECTOR_LENGTH = 256;
 constexpr size_t CSS_LENGTH_FIELD_COUNT = 12;
 constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
 constexpr size_t CSS_FIXED_STYLE_BYTES = 5 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
-                                         4 * sizeof(uint8_t) + 3 * sizeof(uint8_t) + sizeof(uint32_t);
-static_assert(CSS_FIXED_STYLE_BYTES == 76,
+                                         4 * sizeof(uint8_t) + 4 * sizeof(uint8_t) + sizeof(uint32_t);
+static_assert(CSS_FIXED_STYLE_BYTES == 77,
               "CssStyle cache payload changed; update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
 
 // Check if character is CSS whitespace
@@ -408,6 +408,36 @@ bool CssParser::tryInterpretLength(std::string_view val, CssLength& out) {
   return true;
 }
 
+// Unknown marker names leave the property unset so the list keeps its tag default.
+static bool tryInterpretListStyleType(std::string_view value, CssListStyleType& out) {
+  value = trimCssWhitespace(stripTrailingImportant(value));
+  struct Entry {
+    const char* name;
+    CssListStyleType type;
+  };
+  static constexpr Entry kTypes[] = {
+      {"none", CssListStyleType::None},
+      {"disc", CssListStyleType::Disc},
+      {"circle", CssListStyleType::Circle},
+      {"square", CssListStyleType::Square},
+      {"decimal", CssListStyleType::Decimal},
+      {"decimal-leading-zero", CssListStyleType::Decimal},
+      {"lower-alpha", CssListStyleType::LowerAlpha},
+      {"lower-latin", CssListStyleType::LowerAlpha},
+      {"upper-alpha", CssListStyleType::UpperAlpha},
+      {"upper-latin", CssListStyleType::UpperAlpha},
+      {"lower-roman", CssListStyleType::LowerRoman},
+      {"upper-roman", CssListStyleType::UpperRoman},
+  };
+  for (const auto& entry : kTypes) {
+    if (iequalsAscii(value, entry.name)) {
+      out = entry.type;
+      return true;
+    }
+  }
+  return false;
+}
+
 // Declaration parsing
 
 void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style) {
@@ -566,9 +596,35 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
       style.defined.verticalAlign = 1;
     }
   } else if (iequalsAscii(name, "list-style-type")) {
-    const std::string_view listStyleValue = stripTrailingImportant(value);
-    style.listStyleType = iequalsAscii(listStyleValue, "none") ? CssListStyleType::None : CssListStyleType::Disc;
-    style.defined.listStyleType = 1;
+    if (tryInterpretListStyleType(value, style.listStyleType)) style.defined.listStyleType = 1;
+  } else if (iequalsAscii(name, "list-style")) {
+    // Shorthand: any token naming a marker type wins (position/image are ignored).
+    std::string_view rest = trimCssWhitespace(stripTrailingImportant(value));
+    while (!rest.empty()) {
+      const size_t space = rest.find_first_of(" \t");
+      if (tryInterpretListStyleType(rest.substr(0, space), style.listStyleType)) {
+        style.defined.listStyleType = 1;
+        break;
+      }
+      if (space == std::string_view::npos) break;
+      rest = trimCssWhitespace(rest.substr(space));
+    }
+  } else if (iequalsAscii(name, "white-space") || iequalsAscii(name, "white-space-collapse")) {
+    // Values per MDN: pre / pre-wrap / break-spaces / preserve keep spaces and newlines;
+    // pre-line / preserve-breaks keep newlines only. nowrap and normal collapse both
+    // (nowrap's no-wrap half is deliberately ignored: clipping would lose text on e-ink).
+    const std::string_view v = trimCssWhitespace(stripTrailingImportant(value));
+    if (iequalsAscii(v, "pre") || iequalsAscii(v, "pre-wrap") || iequalsAscii(v, "break-spaces") ||
+        iequalsAscii(v, "preserve") || iequalsAscii(v, "preserve nowrap") || iequalsAscii(v, "preserve wrap")) {
+      style.whiteSpace = CssWhiteSpace::Preserve;
+      style.defined.whiteSpace = 1;
+    } else if (iequalsAscii(v, "pre-line") || iequalsAscii(v, "preserve-breaks")) {
+      style.whiteSpace = CssWhiteSpace::PreserveBreaks;
+      style.defined.whiteSpace = 1;
+    } else if (iequalsAscii(v, "normal") || iequalsAscii(v, "nowrap") || iequalsAscii(v, "collapse")) {
+      style.whiteSpace = CssWhiteSpace::Normal;
+      style.defined.whiteSpace = 1;
+    }
   } else if (iequalsAscii(name, "page-break-before") || iequalsAscii(name, "break-before")) {
     bool pageBreakBefore = false;
     if (tryInterpretCssPageBreak(value, pageBreakBefore)) {
@@ -1036,7 +1092,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
       !writeByte(static_cast<uint8_t>(style.verticalAlign)) || !writeByte(static_cast<uint8_t>(style.direction)) ||
       !writeByte(static_cast<uint8_t>(style.pageBreakBefore ? 1 : 0)) ||
       !writeByte(static_cast<uint8_t>(style.pageBreakAfter ? 1 : 0)) ||
-      !writeByte(static_cast<uint8_t>(style.listStyleType))) {
+      !writeByte(static_cast<uint8_t>(style.listStyleType)) || !writeByte(static_cast<uint8_t>(style.whiteSpace))) {
     return false;
   }
 
@@ -1065,6 +1121,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   if (style.defined.pageBreakAfter) definedBits |= 1 << 21;
   if (style.defined.fontVariantCaps) definedBits |= 1 << 22;
   if (style.defined.fontSize) definedBits |= 1 << 23;
+  if (style.defined.whiteSpace) definedBits |= 1 << 24;
   return writeBytes(&definedBits, sizeof(definedBits));
 }
 
@@ -1112,10 +1169,15 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   if (file.read(&pageBreakVal, 1) != 1) return false;
   style.pageBreakAfter = pageBreakVal != 0;
   uint8_t listStyleTypeVal = 0;
-  if (file.read(&listStyleTypeVal, 1) != 1 || listStyleTypeVal > static_cast<uint8_t>(CssListStyleType::None)) {
+  if (file.read(&listStyleTypeVal, 1) != 1 || listStyleTypeVal > static_cast<uint8_t>(CssListStyleType::UpperRoman)) {
     return false;
   }
   style.listStyleType = static_cast<CssListStyleType>(listStyleTypeVal);
+  uint8_t whiteSpaceVal = 0;
+  if (file.read(&whiteSpaceVal, 1) != 1 || whiteSpaceVal > static_cast<uint8_t>(CssWhiteSpace::Preserve)) {
+    return false;
+  }
+  style.whiteSpace = static_cast<CssWhiteSpace>(whiteSpaceVal);
 
   uint32_t definedBits = 0;
   if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
@@ -1146,6 +1208,7 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   if (style.hasFontSize() && (!std::isfinite(style.fontSize.value) || style.fontSize.value <= 0 ||
                               static_cast<uint8_t>(style.fontSize.unit) > static_cast<uint8_t>(CssUnit::Percent)))
     return false;
+  style.defined.whiteSpace = (definedBits & 1 << 24) != 0;
   return true;
 }
 

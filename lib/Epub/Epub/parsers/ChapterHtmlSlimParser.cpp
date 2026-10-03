@@ -74,7 +74,9 @@ constexpr uint32_t MIN_FREE_HEAP_FOR_RICH_TABLE = 96U * 1024U;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_RICH_TABLE = 56U * 1024U;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol"};
+static constexpr const char* const BLOCK_TAGS[] = {
+    "p",      "li",         "div",    "br",     "blockquote", "ul",   "ol",      "pre", "section", "article", "aside",
+    "figure", "figcaption", "header", "footer", "nav",        "main", "address", "dl",  "dt",      "dd"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -292,6 +294,56 @@ bool attributeContainsToken(const char* value, const char* token) {
 bool isHeaderOrBlock(const char* name) {
   return matches(name, HEADER_TAGS, std::size(HEADER_TAGS)) || matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS)) ||
          strcmp(name, "caption") == 0;
+}
+
+// Writes the marker for one list item. Glyphs are limited to ones every built-in reader
+// font carries (no U+25E6 or U+25AA), so circle and square use visually distinct stand-ins.
+void formatListMarker(const CssListStyleType type, const int32_t value, char* out, const size_t size) {
+  switch (type) {
+    case CssListStyleType::Circle:
+      snprintf(out, size, "\xe2\x80\x93");  // – en dash
+      return;
+    case CssListStyleType::Square:
+      snprintf(out, size, "\xe2\x88\x99");  // ∙ bullet operator
+      return;
+    case CssListStyleType::LowerAlpha:
+    case CssListStyleType::UpperAlpha:
+      if (value >= 1 && value <= 26) {
+        const char base = type == CssListStyleType::LowerAlpha ? 'a' : 'A';
+        snprintf(out, size, "%c.", static_cast<char>(base + value - 1));
+        return;
+      }
+      break;  // CSS falls back to decimal outside the alphabet
+    case CssListStyleType::LowerRoman:
+    case CssListStyleType::UpperRoman:
+      if (value >= 1 && value <= 3999) {
+        static constexpr struct {
+          int16_t v;
+          const char* lower;
+          const char* upper;
+        } kRoman[] = {{1000, "m", "M"}, {900, "cm", "CM"}, {500, "d", "D"},  {400, "cd", "CD"}, {100, "c", "C"},
+                      {90, "xc", "XC"}, {50, "l", "L"},    {40, "xl", "XL"}, {10, "x", "X"},    {9, "ix", "IX"},
+                      {5, "v", "V"},    {4, "iv", "IV"},   {1, "i", "I"}};
+        size_t pos = 0;
+        int32_t rest = value;
+        for (const auto& r : kRoman) {
+          while (rest >= r.v && pos + 4 < size) {
+            const char* digits = type == CssListStyleType::LowerRoman ? r.lower : r.upper;
+            pos += static_cast<size_t>(snprintf(out + pos, size - pos, "%s", digits));
+            rest -= r.v;
+          }
+        }
+        snprintf(out + pos, size - pos, ".");
+        return;
+      }
+      break;
+    case CssListStyleType::Disc:
+      snprintf(out, size, "\xe2\x80\xa2");  // •
+      return;
+    default:
+      break;
+  }
+  snprintf(out, size, "%ld.", static_cast<long>(value));
 }
 
 bool isTableStructuralTag(const char* name) {
@@ -814,8 +866,11 @@ void ChapterHtmlSlimParser::flushLongTextRunIfNeeded(const bool force, const boo
 }
 
 int ChapterHtmlSlimParser::currentTextFontId() const {
-  if (!currentTextBlock || tableDepth > 0) return fontId;
-  return renderer.getFontIdForSize(fontId, currentTextBlock->getBlockStyle().fontSize);
+  if (!currentTextBlock) return fontId;
+  // Must match TextBlock::resolvedFontId() so layout, line height and drawing agree.
+  const auto& style = currentTextBlock->getBlockStyle();
+  const int sizedFontId = tableDepth > 0 ? fontId : renderer.getFontIdForSize(fontId, style.fontSize);
+  return style.monospace ? renderer.getMonospaceFontFor(sizedFontId) : sizedFontId;
 }
 
 void ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style) {
@@ -886,6 +941,9 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
       auto combinedStyle = style.getCombinedBlockStyle(incoming, BlockStyle::CombineAxis::Vertical);
       combinedStyle.fromBrElement = incoming.fromBrElement;
       currentTextBlock->setBlockStyle(combinedStyle);
+      // A reused empty block must follow the current white-space scope (e.g. after </pre>).
+      currentTextBlock->setPreformatted(whiteSpaceMode() != CssWhiteSpace::Normal);
+      currentTextBlock->getBlockStyle().monospace = whiteSpaceMode() != CssWhiteSpace::Normal;
       currentTextBlockParagraphIndex = xpathParagraphIndex;
       currentTextBlockListItemIndex = xpathListItemIndex;
 
@@ -899,18 +957,66 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   // If the pending anchor is a TOC chapter boundary, force a page break after the previous
   // block is flushed so the chapter starts on a fresh page.
   flushPendingAnchor();
-  currentTextBlock.reset(new (std::nothrow) ParsedText(extraParagraphSpacing, forceParagraphIndents, hyphenationEnabled,
-                                                       focusReadingEnabled, guideReadingEnabled, wordSpacing,
-                                                       blockStyle, trackReferenceCharacters));
+  const bool preformatted = whiteSpaceMode() != CssWhiteSpace::Normal;
+  currentTextBlock.reset(new (std::nothrow) ParsedText(
+      extraParagraphSpacing, forceParagraphIndents, hyphenationEnabled && !preformatted, focusReadingEnabled,
+      guideReadingEnabled, wordSpacing, blockStyle, trackReferenceCharacters));
   if (!currentTextBlock) {
     const auto heap = MemoryBudget::snapshot();
     LOG_ERR("EHP", "Failed to create text block (%u free, %u max alloc)", heap.freeHeap, heap.maxAllocHeap);
     lowMemoryAbort = true;
     return;
   }
+  currentTextBlock->setPreformatted(preformatted);
+  currentTextBlock->getBlockStyle().monospace = preformatted;
   currentTextBlockParagraphIndex = xpathParagraphIndex;
   currentTextBlockListItemIndex = xpathListItemIndex;
   wordsExtractedInBlock = 0;
+}
+
+// A preserved newline ends the current line exactly like <br>: blank source lines
+// reuse <br>'s empty-block path, which turns them into one line of vertical space.
+void ChapterHtmlSlimParser::emitPreservedBreaks() {
+  if (tableDepth > 0) {
+    // ponytail: table cells hold a single line model; a preserved newline degrades to a space there.
+    if (pendingPreservedSpaces == 0) pendingPreservedSpaces = 1;
+    pendingPreservedBreaks = 0;
+    return;
+  }
+  while (pendingPreservedBreaks > 0 && !lowMemoryAbort) {
+    pendingPreservedBreaks--;
+    if (!currentTextBlock) break;
+    if (currentTextBlock->isEmpty()) {
+      // A newline right after <pre> is not content (HTML parsing rule). An empty line
+      // block already left by a newline is a blank source line: <br>'s path adds the gap.
+      if (!currentTextBlock->getBlockStyle().fromBrElement) continue;
+    } else {
+      // Source lines of one block are not paragraphs: no extra paragraph gap between them.
+      currentTextBlock->getBlockStyle().suppressParagraphSpacing = true;
+    }
+    BlockStyle lineStyle = blockStyleBuf_[blockStyleCount_ - 1].withoutTop().withoutBottom();
+    lineStyle.fromBrElement = true;
+    startNewTextBlock(lineStyle);
+  }
+  pendingPreservedBreaks = 0;
+}
+
+// The first space of a run between two words is the normal (breakable) word gap; every
+// other space becomes a glued " " token so indentation and column alignment survive.
+void ChapterHtmlSlimParser::emitPreservedSpaces(const uint32_t visibleOffset, const uint32_t referenceOffset) {
+  if (pendingPreservedSpaces == 0) return;
+  const bool hasPrevious = currentTextBlock && !currentTextBlock->isEmpty();
+  const uint16_t tokens = hasPrevious ? pendingPreservedSpaces - 1 : pendingPreservedSpaces;
+  pendingPreservedSpaces = 0;
+  for (uint16_t k = 0; k < tokens && !lowMemoryAbort; ++k) {
+    partWordBuffer[0] = ' ';
+    partWordBufferIndex = 1;
+    partWordVisibleOffset = visibleOffset;
+    partWordReferenceOffset = referenceOffset;
+    nextWordContinues = k > 0;
+    flushPartWordBuffer();
+  }
+  nextWordContinues = tokens > 0;
 }
 
 void ChapterHtmlSlimParser::pushCssAncestor(const int depth, const char* tag, const std::string_view classAttr) {
@@ -1969,6 +2075,22 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
+  // <pre> preserves whitespace by HTML semantics, so it applies even with publisher CSS off.
+  if (cssStyle.hasWhiteSpace() || strcmp(name, "pre") == 0) {
+    if (self->whiteSpaceScopeCount_ < MAX_WHITE_SPACE_SCOPES) {
+      const CssWhiteSpace mode = cssStyle.hasWhiteSpace() ? cssStyle.whiteSpace : CssWhiteSpace::Preserve;
+      self->whiteSpaceScopes_[self->whiteSpaceScopeCount_++] = {self->depth, mode};
+    } else {
+      LOG_ERR("EHP", "white-space scope stack overflow");
+    }
+  }
+  if (isHeaderOrBlock(name)) {
+    // Whitespace between block tags is markup layout, not preserved content.
+    self->pendingPreservedBreaks = 0;
+    self->pendingPreservedSpaces = 0;
+    self->preservedColumn = 0;
+  }
+
   // Special handling for tables/cells: stream simple table rows into page fragments,
   // with a clean flat-paragraph fallback for anything more complex.
   if (self->flattensTables()) {
@@ -2943,14 +3065,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         bool markerAdded = false;
         if (self->listContextCount_ > 0 && self->listContexts_[self->listContextCount_ - 1].styleNone) {
           // Marker-free list item.
-        } else if (self->listContextCount_ > 0 && self->listContexts_[self->listContextCount_ - 1].ordered) {
+        } else if (self->listContextCount_ > 0) {
           auto& list = self->listContexts_[self->listContextCount_ - 1];
           int32_t itemValue = 0;
           if (parseListValue(getAttribute(atts, "value"), itemValue)) {
             list.nextValue = itemValue;
           }
-          char marker[16];
-          snprintf(marker, sizeof(marker), "%ld.", static_cast<long>(list.nextValue));
+          char marker[24];
+          formatListMarker(list.markerType, list.nextValue, marker, sizeof(marker));
           if (list.nextValue < INT32_MAX) ++list.nextValue;
           self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR, false, false,
                                           self->honorsPublisherDecorations() && self->effectiveBackgroundBlack, 0,
@@ -2973,6 +3095,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             list.nextValue = startValue;
           }
           list.styleNone = cssStyle.hasListStyleType() && cssStyle.listStyleType == CssListStyleType::None;
+          list.markerType = cssStyle.hasListStyleType() ? cssStyle.listStyleType
+                            : list.ordered              ? CssListStyleType::Decimal
+                                                        : CssListStyleType::Disc;
           list.depth = self->depth;
         } else {
           LOG_ERR("EHP", "list context stack overflow");
@@ -3252,12 +3377,38 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
 
   uint32_t codepointOffset = callbackVisibleOffset;
   uint32_t codepointReferenceOffset = self->referenceTextOffset;
+  const CssWhiteSpace whiteSpace = self->whiteSpaceMode();
   for (int i = 0; i < len; i++) {
     const bool startsCodepoint = (static_cast<uint8_t>(s[i]) & 0xC0) != 0x80;
     if (startsCodepoint && countReferenceCharacters && !self->collectingRubyText) {
       const auto* codepointPtr = reinterpret_cast<const unsigned char*>(s + i);
       const uint32_t codepoint = utf8NextCodepoint(&codepointPtr);
       codepointReferenceOffset = self->consumeReferenceCodepoint(codepoint);
+    }
+    if (whiteSpace != CssWhiteSpace::Normal) {
+      if (isWhitespace(s[i])) {
+        if (self->partWordBufferIndex > 0) {
+          self->flushPartWordBuffer();
+        }
+        self->nextWordContinues = false;
+        if (s[i] == '\n') {
+          self->pendingPreservedSpaces = 0;  // trailing spaces never render
+          if (self->pendingPreservedBreaks < UINT8_MAX) self->pendingPreservedBreaks++;
+          self->preservedColumn = 0;
+        } else if (s[i] != '\r' && whiteSpace == CssWhiteSpace::Preserve) {
+          // Tabs advance to the next 8-column stop (CSS default tab-size).
+          const uint16_t n = s[i] == '\t' ? static_cast<uint16_t>(8 - self->preservedColumn % 8) : 1;
+          self->pendingPreservedSpaces = static_cast<uint16_t>(std::min(self->pendingPreservedSpaces + n, 256));
+          self->preservedColumn = static_cast<uint16_t>(self->preservedColumn + n);
+        }
+        if (startsCodepoint && countVisibleOffsets) codepointOffset++;
+        continue;
+      }
+      if (self->pendingPreservedBreaks > 0 || self->pendingPreservedSpaces > 0) {
+        self->emitPreservedBreaks();
+        self->emitPreservedSpaces(codepointOffset, codepointReferenceOffset);
+      }
+      if (startsCodepoint) self->preservedColumn++;
     }
     if (isWhitespace(s[i])) {
       // Currently looking at whitespace, if there's anything in the partWordBuffer, flush it
@@ -3545,6 +3696,15 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
 
   self->depth -= 1;
   self->clearReferenceExclusionIfClosed();
+
+  if (self->whiteSpaceScopeCount_ > 0 &&
+      self->whiteSpaceScopes_[self->whiteSpaceScopeCount_ - 1].depth == self->depth) {
+    self->whiteSpaceScopeCount_--;
+    // Trailing newlines/spaces before the closing tag are not content (matches browsers for </pre>).
+    self->pendingPreservedBreaks = 0;
+    self->pendingPreservedSpaces = 0;
+    self->preservedColumn = 0;
+  }
 
   // Pop ancestor entries that were pushed at or below the new depth
   while (!self->ancestorStack_.empty() && self->ancestorStack_.back().depth >= self->depth) {
@@ -4261,7 +4421,7 @@ void ChapterHtmlSlimParser::makePages() {
   }
 
   // Extra paragraph spacing if enabled (default behavior)
-  if (extraParagraphSpacing) {
+  if (extraParagraphSpacing && !blockStyle.suppressParagraphSpacing) {
     currentPageNextY += lineHeight / 2;
   }
 

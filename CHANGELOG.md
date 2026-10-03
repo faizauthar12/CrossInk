@@ -1,3 +1,15 @@
+## [Unreleased]
+
+### Added
+
+- EPUB code blocks (`<pre>` and CSS `white-space: pre`, `pre-wrap`, `pre-line`) keep their line breaks, indentation, and tab alignment, and render in a built-in JetBrains Mono font matched to the reader font size.
+- Lists honour more `list-style-type` values: circle, square, decimal, lower/upper alpha, and lower/upper roman, including the `list-style` shorthand.
+
+### Fixed
+
+- Code blocks in EPUBs are no longer collapsed into one justified, hyphenated paragraph.
+- HTML5 sectioning elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`, `footer`, `nav`, `main`, `address`, `dl`, `dt`, `dd`) start new paragraphs instead of running into the surrounding text.
+
 ## [v1.6.1] - 2026-10-03
 
 ### Added
