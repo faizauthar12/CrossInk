@@ -128,6 +128,8 @@
 - Reduce memory used by OPDS book feeds with long descriptions, release partial catalogs after failed requests, and stop transfers promptly when parsing fails.
 - Code blocks in EPUBs are no longer collapsed into one justified, hyphenated paragraph.
 - HTML5 sectioning elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`, `footer`, `nav`, `main`, `address`, `dl`, `dt`, `dd`) start new paragraphs instead of running into the surrounding text.
+- Paragraphs whose CSS sets vertical margins no longer get double or triple gaps between them: adjacent margins collapse like in a browser, and the extra paragraph gap is not stacked on a publisher bottom margin.
+- Nested lists, such as a book's inline table of contents, are indented per level instead of flattened into one column.
 
 ### Changed
 

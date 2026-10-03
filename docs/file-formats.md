@@ -888,7 +888,10 @@ lines keep source line breaks, indentation, and tab stops (8 columns), are never
 justified or hyphenated, and wrap overlong tokens at a codepoint. HTML5 sectioning
 elements (`section`, `article`, `aside`, `figure`, `figcaption`, `header`,
 `footer`, `nav`, `main`, `address`, `dl`, `dt`, `dd`) now start blocks, and lists
-honour more `list-style-type` values.
+honour more `list-style-type` values. Layout also changes without new payload:
+adjacent block margins collapse (`max(bottom, top)` instead of their sum), the
+default half-line paragraph gap is skipped for blocks that set a bottom margin,
+and `ul`/`ol` without publisher left spacing get a 1.5em indent per level.
 Complete files use byte `101`; suspended partials use `0xD6`. Version `100` / `0xD5` and earlier caches are rejected as stale.
 
 CSS cache revision `24` replaces the boolean whitespace byte with a `whiteSpace`
