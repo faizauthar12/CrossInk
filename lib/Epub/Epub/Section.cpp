@@ -46,7 +46,8 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v95: Image-only paragraphs retain publisher alignment independently of prose.
 // v96: white-space/<pre> preserve line breaks and spacing in a monospace font, HTML5
 // sectioning tags are blocks, more list-style-type markers; TextBlock stores a monospace
-// flag; sibling vertical margins collapse and ul/ol get a default indent.
+// flag; sibling vertical margins collapse, ul/ol get a default indent, code lines use the
+// mono line height.
 constexpr uint8_t SECTION_FILE_VERSION = 96;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
