@@ -2935,6 +2935,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     rootBlockStyle.textIndentDefined = true;
   }
 
+  // ponytail: UA default list indent (browsers give ul/ol `padding-inline-start: 40px`). Without
+  // it nested lists such as a nav TOC flatten into one column. 1.5em instead of 40px keeps
+  // deep nesting usable on a 480px-wide page; publisher left spacing still wins.
+  if ((strcmp(name, "ul") == 0 || strcmp(name, "ol") == 0) &&
+      !(self->embeddedStyle && (cssStyle.hasPaddingLeft() || cssStyle.hasMarginLeft()))) {
+    userAlignmentBlockStyle.paddingLeft = static_cast<int16_t>(emSize * 1.5f);
+  }
+
   // Force paragraph indent to prevent unreadable walls of text.
   // This applies if the publisher set text-indent: 0, omitted it, or if it was stripped by disabling embedded styles.
   if (self->forceParagraphIndents && strcmp(name, "p") == 0) {
@@ -4375,8 +4383,12 @@ void ChapterHtmlSlimParser::makePages() {
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
   const int lineHeight = effectiveLineHeight();
   if (!currentTextBlock->isContinuation()) {
-    if (blockStyle.marginTop > 0) {
-      currentPageNextY += blockStyle.marginTop;
+    // Adjacent vertical margins collapse: the previous block's trailing gap already counts
+    // toward this block's top margin.
+    const bool collapses = collapsibleGapPage_ == completedPageCount && collapsibleGapEndY_ == currentPageNextY;
+    const int16_t previousGap = collapses ? collapsibleGap_ : 0;
+    if (blockStyle.marginTop > previousGap) {
+      currentPageNextY += blockStyle.marginTop - previousGap;
     }
     if (blockStyle.paddingTop > 0) {
       currentPageNextY += blockStyle.paddingTop;
@@ -4413,17 +4425,26 @@ void ChapterHtmlSlimParser::makePages() {
   attachPendingPublisherPageMarkers(currentPageNextY);
 
   // Apply bottom spacing after the paragraph (stored in pixels)
+  int16_t trailingGap = 0;
   if (blockStyle.marginBottom > 0) {
     currentPageNextY += blockStyle.marginBottom;
+    trailingGap = blockStyle.marginBottom;
   }
   if (blockStyle.paddingBottom > 0) {
     currentPageNextY += blockStyle.paddingBottom;
+    trailingGap = 0;  // padding separates the margins, so nothing collapses through it
   }
 
-  // Extra paragraph spacing if enabled (default behavior)
-  if (extraParagraphSpacing && !blockStyle.suppressParagraphSpacing) {
+  // Extra paragraph spacing if enabled (default behavior). It stands in for a bottom margin, so a
+  // block whose CSS already sets one keeps the publisher's spacing instead of stacking another
+  // half line on top of it. (A top margin collapses with this gap, so it needs no check.)
+  if (extraParagraphSpacing && !blockStyle.suppressParagraphSpacing && blockStyle.marginBottom <= 0) {
     currentPageNextY += lineHeight / 2;
+    trailingGap = static_cast<int16_t>(trailingGap + lineHeight / 2);
   }
+  collapsibleGap_ = trailingGap;
+  collapsibleGapEndY_ = currentPageNextY;
+  collapsibleGapPage_ = completedPageCount;
 
   if (blockStyle.pageBreakAfter && currentPage && !currentPage->elements.empty()) {
     completeCurrentPage();

@@ -94,6 +94,12 @@ class ChapterHtmlSlimParser {
   std::string rubyTextBuffer;
   std::unique_ptr<Page> currentPage = nullptr;
   int16_t currentPageNextY = 0;
+  // ponytail: CSS sibling margin collapsing. The gap after the last text block, and the
+  // page/Y it ended at, so the next block only adds max(top, previous gap) - previous gap.
+  // Anything else placed in between (image, rule, table, new page) moves Y and breaks the match.
+  int16_t collapsibleGap_ = 0;
+  int16_t collapsibleGapEndY_ = -1;
+  int collapsibleGapPage_ = -1;
   uint32_t currentPageVisibleOffset = 0;
   uint32_t currentPageReferenceOffset = 0;
   bool currentPageVisibleOffsetSet = false;
