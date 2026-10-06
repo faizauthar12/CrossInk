@@ -29,8 +29,9 @@ A browser plugin contains `plugin.js`. Optional `manifest.json` supplies its
 on the reader, join a network, and visit the reader's web portal from a browser.
 The plugin appears on the matching Settings or Files page.
 
-A device catalog contains `device.json`. Open **Settings → System → Plugins**
-to select it. Existing OPDS navigation remains available separately. Browser-only
+A device catalog contains `device.json`. Open **Plugins** on Home in any theme
+(shown when plugins are installed), or **Settings → System → Plugins** to select
+it. OPDS Browser is available under **Home → File Transfer**. Browser-only
 and background-only manifests can appear in this list, but do not open a device
 catalog. Read their setup instructions in the browser or on your computer.
 

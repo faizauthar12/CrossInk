@@ -56,7 +56,7 @@ def main():
                     data = json.dumps([{'title': 'Signed-in library', 'url': url + '/book'}]).encode()
                 elif self.path == '/json':
                     data = json.dumps([{'title': title, 'url': url + '/book'} for title in
-                                       ['Fixture', 'Second book', 'Café — 日本語']]).encode()
+                                       ['Fixture', 'Second book', 'Café stories']]).encode()
                 elif self.path == '/xml':
                     data = ('<files>' + ''.join(f'<file url="{url}/book/{i}" title="Book {i:03}"/>'
                                                 for i in range(200)) + '</files>').encode()
@@ -110,6 +110,7 @@ def main():
         write('/plugins/bundles/device.json', {'title': 'Plugin catalog', 'browse': {'url': origin + '/bundles',
               'fields': {'title': 'title', 'id': 'id'}}, 'download': {'dest_dir': '/plugins',
               'bundle': {'base': 'base', 'files': 'files', 'subdir': '{id}'}}})
+        write('/plugins/installed/manifest.json', {'title': 'Browser tools'})
         write('/plugins/installed/plugin.js', 'old')
         write('/plugins/installed/.config.json', {'keep': True})
         write('/plugins/installed/.secrets/value', 'preserve')

@@ -175,7 +175,8 @@ enum UIIcon {
   Wifi,
   Hotspot,
   Chart,
-  BookCheck
+  BookCheck,
+  Plugins
 };
 
 // Default theme implementation (Classic Theme)

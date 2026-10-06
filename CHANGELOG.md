@@ -39,7 +39,7 @@
 - Enable Tilt: Next Page Only in Controls to advance a page with either tilt direction on supported devices.
 - Jump to a percentage in XTC and XTCH books from the reader menu, using the same slider and numeric keypad as EPUB books.
 
-- Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Open device catalogs from Settings → System → Plugins.
+- Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Open Plugins from Home when plugins are installed, or from Settings → System → Plugins.
 
 ### Fixed
 
@@ -135,7 +135,7 @@
 - Reduce repeated SD reads when opening EPUBs, browsing Library rows, and preserving reading position through layout changes; reuse temporary TXT indexing scratch without retaining it while reading.
 - Exclude unused Arduino libraries and Bluetooth/Zigbee components from tuned firmware builds (adapted from Uri Tauber, CrossPoint #3857).
 - Install SD languages and hyphenation packs on PSRAM-equipped readers with small factory data partitions, including X4 Pro, using an SD cache loaded into PSRAM. Startup reuses an open cache file for sequential validation reads. The bootloader, partition table, and firmware slots remain unchanged.
-- Remove the redundant Touch Reader Controls setting from device and web settings; Disable Touchscreen remains the full reader touch lock.
+- Move OPDS Browser into File Transfer, keeping room for Plugins and Settings on Home.
 
 ## [v1.6.1] - 2026-10-03
 

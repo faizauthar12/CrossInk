@@ -273,8 +273,8 @@ std::string PluginCatalogActivity::downloadDir() const {
   return manifest.destDir;
 }
 
-PluginCatalogActivity::PluginCatalogActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : CatalogActivity("PluginCatalog", renderer, mappedInput) {}
+PluginCatalogActivity::PluginCatalogActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool fromHome)
+    : CatalogActivity("PluginCatalog", renderer, mappedInput), fromHome(fromHome) {}
 
 PluginCatalogActivity::~PluginCatalogActivity() = default;
 
@@ -977,7 +977,10 @@ void PluginCatalogActivity::onBackButton() {
     return;
   }
   if (state == State::PLUGIN_PICKER) {
-    finish();  // return to Settings
+    if (fromHome)
+      activityManager.goHome(HomeMenuItem::PLUGINS);
+    else
+      finish();  // return to the calling Settings screen
     return;
   }
   if (searchActive) {
@@ -1180,6 +1183,10 @@ void PluginCatalogActivity::buildBrowsingScreen(UiScreen& screen) {
     // the row grows to fit it. maxLines=2 also marks the style caller-owned
     // (an all-default smallText fails textStyleUnset and the list would
     // resubstitute).
+    props.labelText = screen.theme().bodyText;
+    props.labelText.bold = true;
+    props.rowGap = screen.theme().spaceMd;
+    props.separatorPaint = fui::Paint::solid(fui::Color::Black);
     props.subtitleText = screen.theme().smallText;
     props.subtitleText.maxLines = 2;
   }
@@ -1220,12 +1227,14 @@ void PluginCatalogActivity::rebuildRowItems() {
   } else if (state == State::LIST_PICKER) {
     for (const auto& list : manifest.browseLists) addRow(list.title.c_str());
   } else {
-    if (prevRowVisible()) addRow(tr(STR_PREV_PAGE), nullptr, ">");
+    previousPageLabel = std::string("< ") + tr(STR_PREV_PAGE);
+    nextPageLabel = std::string(tr(STR_NEXT_PAGE)) + " >";
+    if (prevRowVisible()) addRow(previousPageLabel.c_str());
     for (size_t i = 0; i < itemCount; ++i) {
       const auto& entry = items[i];
       addRow(entry.title.c_str(), entry.author.c_str(), entry.isDir ? ">" : entry.status.c_str());
     }
-    if (nextRowVisible()) addRow(tr(STR_NEXT_PAGE), nullptr, ">");
+    if (nextRowVisible()) addRow(nullptr, nullptr, nextPageLabel.c_str());
   }
 }
 

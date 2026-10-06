@@ -33,7 +33,7 @@ std::vector<PluginRef> discoverPlugins();
 class PluginCatalogActivity final : public CatalogActivity {
  public:
   // Out-of-line construction/destruction needs the complete SecureHttpClient type.
-  explicit PluginCatalogActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
+  explicit PluginCatalogActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool fromHome = false);
   ~PluginCatalogActivity() override;
 
   void onEnter() override;
@@ -44,6 +44,8 @@ class PluginCatalogActivity final : public CatalogActivity {
 #ifdef SIMULATOR
   friend struct PluginCatalogSmokeTest;
 #endif
+  const bool fromHome;
+  std::string previousPageLabel, nextPageLabel;
   enum class Work { None, StartBrowse, FetchPage, BeginAuth, PollAuth, Download };
   Work pendingWork = Work::None;
   int pendingArgument = 0;
