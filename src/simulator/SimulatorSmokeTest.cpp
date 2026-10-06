@@ -22,6 +22,7 @@
 #include "BookFontSystem.h"
 #include "ClippingSelectionSmokeTest.h"
 #include "OpdsCatalogSmokeTest.h"
+#include "PluginSmokeTest.h"
 #include "ReadingUploadSmokeTest.h"
 #include "SilentRestart.h"
 #include "StatsUploadSmokeTest.h"
@@ -5691,6 +5692,10 @@ class SimulatorSmokeTest {
 
   void tickImpl() {
     mappedInputManager.simulatorClearInputFrame();
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_PLUGINS")) {
+      runPluginSmokeTestTick();
+      return;
+    }
 
     if (settleFrames > 0) {
       --settleFrames;

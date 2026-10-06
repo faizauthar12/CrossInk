@@ -15,9 +15,8 @@ inline bool recover(const std::string& destination) {
   if (!ok) LOG_ERR("HTTP", "Could not recover download backup: %s", backup.c_str());
   return ok;
 }
-inline bool publish(const std::string& destination, bool requireBackupCleanup = false) {
+inline bool publishFrom(const std::string& destination, const std::string& partial, bool requireBackupCleanup = false) {
   if (!recover(destination)) return false;
-  const std::string partial = destination + ".part";
   const std::string backup = destination + ".old";
   const bool replacing = Storage.exists(destination.c_str());
   if (replacing && !Storage.rename(destination.c_str(), backup.c_str())) {
@@ -38,5 +37,8 @@ inline bool publish(const std::string& destination, bool requireBackupCleanup = 
     return !requireBackupCleanup;
   }
   return true;
+}
+inline bool publish(const std::string& destination, bool requireBackupCleanup = false) {
+  return publishFrom(destination, destination + ".part", requireBackupCleanup);
 }
 }  // namespace DownloadFileSwap

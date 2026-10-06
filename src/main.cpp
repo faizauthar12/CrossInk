@@ -111,6 +111,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "components/icons/tablerFilledIcons.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "util/PluginBundle.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
 
@@ -1375,6 +1376,7 @@ void setup() {
 
   HalSystem::checkPanic();
 
+  if (!PluginBundle::recoverPending()) LOG_ERR("PLUG", "Plugin install recovery pending");
   SETTINGS.loadFromFile();
   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
   APP_STATE.loadFromFile();

@@ -151,3 +151,8 @@ add_subdirectory(swipe_delete)
 
 add_test(NAME LanguageAssetPublicationRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_language_asset_publication.py)
+
+add_subdirectory(protected_paths)
+add_subdirectory(plugin_manifest_classification)
+add_subdirectory(plugin_http_policy)
+add_subdirectory(plugin_bundle)

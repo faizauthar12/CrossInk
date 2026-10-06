@@ -47,6 +47,7 @@
 #include "SilentRestart.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/plugins/PluginCatalogActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
@@ -1534,6 +1535,15 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::Plugins: {
+        auto plugins = makeUniqueNoThrow<PluginCatalogActivity>(renderer, mappedInput);
+        if (!plugins) {
+          LOG_ERR("SET", "OOM: plugins");
+          break;
+        }
+        startActivityForResult(std::move(plugins), resultHandler);
+        break;
+      }
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
         break;

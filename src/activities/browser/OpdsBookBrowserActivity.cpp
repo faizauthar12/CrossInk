@@ -674,7 +674,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
         server.username, server.password, std::move(downloadOptions), &diagnostics);
     if (result != HttpDownloader::OK) {
       state = BrowserState::ERROR;
-      switch (classifyFeedFailure(diagnostics, result == HttpDownloader::HTTP_ERROR)) {
+      switch (classifyFeedFailure(diagnostics,
+                                  result == HttpDownloader::HTTP_ERROR || result == HttpDownloader::UNAUTHORIZED)) {
         case OpdsFeedError::Unauthorized:
           errorMessage = tr(STR_FEED_UNAUTHORIZED);
           break;
