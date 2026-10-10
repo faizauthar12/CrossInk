@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
-from core import Budget, Native, PIN, QMP, compose, fixture, sha
+from core import ACTIVITY_LOG_SIGNATURE, Budget, LogProfileError, Native, PIN, QMP, compose, fixture, require_debug_image, sha
 
 
 class Composition(unittest.TestCase):
@@ -27,6 +27,7 @@ class Composition(unittest.TestCase):
         boot[0] = app[0] = 0xe9
         boot[12] = app[12] = 9
         boot[25:30] = b"owned"
+        app[64:64 + len(ACTIVITY_LOG_SIGNATURE)] = ACTIVITY_LOG_SIGNATURE
         (self.build / "bootloader.bin").write_bytes(boot)
         (self.build / "firmware.bin").write_bytes(app)
         (self.build / "partitions.bin").write_bytes(struct.pack("<HBBII16sI", 0x50aa, 0, 0x10,
@@ -60,6 +61,28 @@ class Composition(unittest.TestCase):
         table.write_bytes(struct.pack("<HBBII16sI", 0x50aa, 0, 0x10, 0x10000, 32, b"app0", 0))
         with self.assertRaisesRegex(ValueError, "application exceeds"):
             compose(self.build, self.root / "flash.bin")
+
+    def test_log_profile_rejects_production_without_weakening_home_predicate(self):
+        debug = compose(self.build, self.root / "debug.bin")
+        require_debug_image(debug)
+        path = self.build / "firmware.bin"
+        path.write_bytes(path.read_bytes().replace(ACTIVITY_LOG_SIGNATURE, b"\0" * len(ACTIVITY_LOG_SIGNATURE)))
+        production = compose(self.build, self.root / "production.bin")
+        with self.assertRaisesRegex(LogProfileError, "LOG_LEVEL=2.*firmware was not started"):
+            require_debug_image(production)
+
+    def test_stale_build_record_cannot_attribute_changed_firmware_to_source(self):
+        record = {"source": {"commit": "original-source"},
+            "artifacts": {name: sha(self.build / name)
+                          for name in ("bootloader.bin", "partitions.bin", "firmware.bin")}}
+        (self.build / "crossink-build.json").write_text(json.dumps(record))
+        verified = compose(self.build, self.root / "verified.bin")
+        self.assertEqual(verified["build_record_verification"], "artifact-hashes-match")
+        app = self.build / "firmware.bin"
+        app.write_bytes(app.read_bytes() + b"changed")
+        with self.assertRaisesRegex(ValueError, "SHA-256.*mismatched.*firmware.bin"):
+            compose(self.build, self.root / "stale.bin")
+        self.assertFalse((self.root / "stale.bin").exists())
 
     def test_cancellation_and_expired_deadline_clean_up_subprocess_runner(self):
         runtime = self.root / "runtime"
@@ -153,6 +176,39 @@ sys.exit(run.main())
 
 
 class Control(unittest.TestCase):
+    def test_teardown_kills_orphan_after_group_leader_exits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "child.pid"
+            child = """
+import os, signal, sys, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path(sys.argv[1]).write_text(str(os.getpid()))
+time.sleep(60)
+"""
+            leader = """
+import subprocess, sys, time
+from pathlib import Path
+subprocess.Popen([sys.executable, '-c', sys.argv[2], sys.argv[1]],
+    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+while not Path(sys.argv[1]).exists(): time.sleep(0.01)
+"""
+            process = subprocess.Popen([sys.executable, "-c", leader, str(marker), child],
+                start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                self.assertEqual(process.wait(timeout=3), 0)
+                child_pid = int(marker.read_text())
+                os.kill(child_pid, 0)
+                n = Native(root, root)
+                n.proc = process
+                n.close()
+                with self.assertRaises(ProcessLookupError): os.kill(child_pid, 0)
+            finally:
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                process.wait(timeout=3)
+
     def test_qmp_fragmented_events_response_ids_and_errors(self):
         a, b = socket.socketpair()
         q = QMP.__new__(QMP)

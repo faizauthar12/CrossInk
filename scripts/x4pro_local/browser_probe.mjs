@@ -9,6 +9,10 @@ if (!process.argv[2] || !Number.isFinite(seconds) || seconds <= 0) {
   throw new Error('Usage: node browser_probe.mjs RUN_DIRECTORY [TIMEOUT_SECONDS]');
 }
 const info = JSON.parse(fs.readFileSync(path.join(run, 'browser.json'), 'utf8'));
+const manifest = JSON.parse(fs.readFileSync(path.join(run, 'manifest.json'), 'utf8'));
+if (manifest.firmware.log_profile?.activity_entry_signature_present === false) {
+  throw new Error('Browser Home predicate requires x4-pro-debug / LOG_LEVEL=2; production image lacks activity-entry logs');
+}
 const requestedProfile = path.resolve(info.profile);
 if (fs.realpathSync(path.dirname(requestedProfile)) !== run || !info.url.startsWith('http://127.0.0.1:')) {
   throw new Error('Only a runner-owned private local browser profile is supported');

@@ -2,6 +2,7 @@
 """Build one CrossInk X4 Pro debug environment and record its source identity."""
 import argparse
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -11,14 +12,27 @@ import signal
 import subprocess
 import time
 
-from core import Terminated, command, ignore_termination_signals, install_signal_handlers, sha, write_json
+from core import Terminated, command, ignore_termination_signals, install_signal_handlers, sha, stop_owned_group, write_json
 
 
-def identity(source):
-    paths = ["src", "lib", "include", "platformio.ini", "partitions.csv", "sdkconfig"]
+def identity(source, pio):
+    paths = ["src", "lib", "include", "scripts", "web", "assets", "boards",
+             ":(glob)platformio*.ini", ":(glob)partitions*.csv", ":(glob)sdkconfig*"]
+    listed = command(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", *paths], cwd=source).stdout
+    inputs = {os.fsdecode(name): sha(source / os.fsdecode(name))
+              for name in listed.split(b"\0") if name and (source / os.fsdecode(name)).is_file()}
+    # Local overrides are normally ignored by Git, but change effective firmware flags.
+    for path in source.glob("platformio*.ini"):
+        inputs[path.name] = sha(path)
+    config = command([pio, "project", "config", "--json-output"], cwd=source).stdout
+    effective = json.loads(config)
     untracked = command(["git", "ls-files", "--others", "--exclude-standard", "-z", "--", *paths], cwd=source).stdout
     sdk_untracked = command(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=source / "freeink-sdk").stdout
     return dict(path=str(source),
+        input_sha256=inputs,
+        effective_config_sha256=hashlib.sha256(
+            json.dumps(effective, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        configuration_command=[pio, "project", "config", "--json-output"],
         commit=command(["git", "rev-parse", "HEAD"], cwd=source).stdout.decode().strip(),
         firmware_diff=command(["git", "diff", "HEAD", "--", *paths], cwd=source).stdout.decode(),
         untracked={os.fsdecode(name): sha(source / os.fsdecode(name)) for name in untracked.split(b"\0") if name},
@@ -40,7 +54,7 @@ def main():
     source = args.source.resolve()
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be positive")
-    before = identity(source)
+    before = identity(source, args.pio)
     argv = [args.pio, "run", "-e", "x4-pro-debug", "-j1"]
     args.log.parent.mkdir(parents=True, exist_ok=True)
     # Cooperating callers serialize use of the S3-only PlatformIO core. This
@@ -54,16 +68,10 @@ def main():
                 code = process.wait(timeout=args.timeout)
             finally:
                 ignore_termination_signals()
-                if process.poll() is None:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait(timeout=5)
+                stop_owned_group(process, grace=5)
         if code:
             raise RuntimeError(f"Build failed ({code}); see {args.log}")
-        if identity(source) != before:
+        if identity(source, args.pio) != before:
             raise RuntimeError("Firmware source changed during build; no provenance record published")
         build = source / ".pio/build/x4-pro-debug"
         record = dict(source=before, command=argv, environment="x4-pro-debug", started=started,

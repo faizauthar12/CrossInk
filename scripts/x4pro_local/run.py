@@ -19,7 +19,7 @@ import threading
 import time
 import zipfile
 
-from core import ROOT, PIN, Budget, Native, Terminated, command, compose, fixture, ignore_termination_signals, install_signal_handlers, sha, write_json
+from core import ROOT, PIN, Budget, LogProfileError, Native, Terminated, command, compose, fixture, ignore_termination_signals, install_signal_handlers, require_debug_image, sha, stop_owned_group, write_json
 
 
 def prepare(args):
@@ -112,16 +112,12 @@ def browser(args, run):
                 time.sleep(0.2)
     finally:
         ignore_termination_signals()
-        if process and process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=5)
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+        try:
+            stop_owned_group(process, grace=5)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 
 def main():
@@ -161,6 +157,7 @@ def main():
         if args.backend == "browser":
             browser(args, run)
         else:
+            require_debug_image(manifest["firmware"])
             native = Native(args.runtime, run, args.overall_timeout, args.action_timeout, args.mode == "manual")
             native.start()
             native.ready(timeout=args.ready_timeout)
@@ -174,6 +171,11 @@ def main():
                     time.sleep(0.2)
         manifest["status"] = "passed" if args.mode == "test" else "stopped"
         exit_code = 0
+    except LogProfileError as error:
+        if manifest:
+            manifest.update(status="unsupported-image", error=str(error), firmware_started=False)
+        print(f"UNSUPPORTED IMAGE: {error}", file=sys.stderr)
+        exit_code = 2
     except Terminated as error:
         if manifest:
             manifest.update(status="interrupted", signal=error.signum)
@@ -195,7 +197,12 @@ def main():
                     native.shot("final")
             except Exception:
                 pass
-            native.close()
+            try:
+                native.close()
+            except Exception as error:
+                if manifest:
+                    manifest.update(status="failed", teardown_error=str(error))
+                exit_code = 1
         if run and manifest:
             if args.backend == "native":
                 exported = run / "sd-results"

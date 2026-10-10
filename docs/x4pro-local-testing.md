@@ -69,7 +69,12 @@ Initialize an isolated firmware checkout with `git submodule update --init
 Use the S3 wrapper; never run it concurrently with another direct S3 build.
 The build helper locks cooperating calls, selects exactly one debug environment,
 limits jobs to one, bounds build time and records the source, SDK and artifact
-hashes. It does not change the source or flash hardware:
+hashes. It fingerprints tracked/untracked firmware inputs, build scripts,
+web/assets/board sources and ignored `platformio.local.ini` overrides, plus
+the resolved PlatformIO configuration hash. The effective configuration is
+hashed rather than copied into the manifest, so values in local overrides are
+not disclosed. Source/configuration changes during the build reject attribution.
+It does not change the source or flash hardware:
 
 ```sh
 python3 scripts/x4pro_local/build.py \
@@ -87,9 +92,22 @@ letting PlatformIO install anything missing. Do not reuse the C3 package core.
 
 Every run takes `--build-dir` explicitly. It can point at a separately built
 feature image, including an existing language-feature worktree; no merge or
-edit is needed. A build record, when available, is included in the run manifest.
+edit is needed. Native manual readiness and all scenario predicates require
+the supported `x4-pro-debug` configuration (`LOG_LEVEL=2`), because activity-entry
+messages are debug logs. The runner checks for their format-string signature
+in the application before launching QEMU. An image without it exits `2`, with
+manifest status `unsupported-image` and `firmware_started: false`; this is a
+log-profile incompatibility, not a firmware crash or a failed Home boot.
+Signature presence is a preflight check; the actual runtime predicates remain
+unchanged and still must pass. Browser manual UI can use a production image,
+but the optional CDP Home assertion also requires the debug messages.
+A build record, when available, is included in the run manifest.
 Without a record, hashes identify the input bytes but do not prove what source
-produced them. Keep the ELF beside the binaries for backtrace decoding.
+produced them. A supplied record must contain matching SHA-256 values for all
+three composed binaries; missing or stale hashes reject source attribution and
+composition. `build_record_verification: artifact-hashes-match` verifies the
+record's relationship to those bytes, not an independent signature of its
+source claim. Keep the ELF beside the binaries for backtrace decoding.
 
 The composer uses that build's `bootloader.bin` at `0`, `partitions.bin` at
 `0x8000`, and `firmware.bin` at `0x10000`, leaving NVS and OTA metadata erased.
@@ -204,6 +222,9 @@ waited for and killed if necessary; socket directories are removed. Final panel
 capture and graceful QMP shutdown have a separate five-second cleanup budget
 after an expired run deadline. SIGKILL or host failure cannot run cleanup;
 use the recorded PID/process group for recovery in those cases.
+Teardown checks the owned process group independently of its leader and kills
+surviving descendants, including a child that ignores SIGTERM after the leader
+exits. The same bounded group cleanup is shared by QEMU, Chrome and build runs.
 
 Host runner contracts can be checked without firmware:
 

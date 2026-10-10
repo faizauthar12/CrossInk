@@ -18,6 +18,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 PIN = json.loads(Path(__file__).with_name("provenance.json").read_text())
 FLASH_SIZE = 16 * 1024 * 1024
+ACTIVITY_LOG_SIGNATURE = b"Entering activity: %s"
 CRASH = re.compile(r"Guru Meditation|panic(?:'ed|ked)?|abort\(\)|assert failed|Assertion failed|Stack smashing|watchdog.*(?:trigger|reset)|Segmentation fault", re.I)
 REFRESH = r"Wait complete:\s+8179_(?:DRF|gray_pre_DRF|gray_split_DRF)"
 
@@ -25,6 +26,16 @@ REFRESH = r"Wait complete:\s+8179_(?:DRF|gray_pre_DRF|gray_split_DRF)"
 class Terminated(KeyboardInterrupt):
     def __init__(self, signum):
         self.signum = signum
+
+
+class LogProfileError(ValueError):
+    """A healthy production image cannot satisfy debug-only predicates."""
+
+
+def require_debug_image(firmware):
+    if not firmware["log_profile"]["activity_entry_signature_present"]:
+        raise LogProfileError("Native Home/scenario predicates require the supported x4-pro-debug image "
+            "(LOG_LEVEL=2). This image omits the activity-entry log signature; firmware was not started.")
 
 
 def install_signal_handlers():
@@ -59,6 +70,41 @@ def command(argv, timeout=30, **kwargs):
                           capture_output=True, **kwargs)
 
 
+def stop_owned_group(process, grace=3):
+    """Reap the leader and stop its private process group, including orphans."""
+    if process is None:
+        return
+    group = process.pid  # Every caller starts the child with start_new_session=True.
+
+    def alive():
+        process.poll()  # Reap our child even when another group member survives.
+        try:
+            os.killpg(group, 0)
+            return True
+        except ProcessLookupError:
+            return False
+
+    def wait_group():
+        end = time.monotonic() + grace
+        while alive() and time.monotonic() < end:
+            time.sleep(0.05)
+        return not alive()
+
+    if alive():
+        try:
+            os.killpg(group, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        if not wait_group():
+            try:
+                os.killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            if not wait_group():
+                raise RuntimeError(f"Owned process group {group} remains after bounded SIGKILL cleanup")
+    process.wait(timeout=grace)
+
+
 def compose(build, output):
     """Keep CrossInk's own bootloader/table, and validate the app0 bounds."""
     build, output = Path(build).resolve(), Path(output)
@@ -90,11 +136,22 @@ def compose(build, output):
                                ("firmware.bin", 0x10000, app)]:
         image[offset:offset + len(data)] = data
         inputs[name] = dict(path=str(build / name), sha256=sha(build / name), size=len(data), offset=offset)
+    record_path = build / "crossink-build.json"
+    record = json.loads(record_path.read_text()) if record_path.exists() else None
+    if record is not None:
+        for name, info in inputs.items():
+            expected = record.get("artifacts", {}).get(name)
+            if isinstance(expected, dict):
+                expected = expected.get("sha256")
+            if expected != info["sha256"]:
+                raise ValueError(f"Build record artifact SHA-256 missing or mismatched for {name}; source attribution rejected")
     output.write_bytes(image)
     return dict(build_dir=str(build), inputs=inputs, partitions=partitions,
                 flash_sha256=sha(output), ota_metadata="erased, boot app0",
-                build_record=(json.loads((build / "crossink-build.json").read_text())
-                              if (build / "crossink-build.json").exists() else None))
+                log_profile=dict(activity_entry_signature_present=ACTIVITY_LOG_SIGNATURE in app,
+                    signature=ACTIVITY_LOG_SIGNATURE.decode(), predicates_require="x4-pro-debug / LOG_LEVEL=2"),
+                build_record=record,
+                build_record_verification="artifact-hashes-match" if record is not None else "no-record")
 
 
 def synthetic_epub(path):
@@ -357,25 +414,21 @@ class Native:
         return json.loads(self.sd_file("/.crosspoint/crossink-settings.json"))
 
     def close(self):
-        if self.proc and self.proc.poll() is None:
-            try:
-                if self.qmp:
-                    self.qmp.budget = Budget(5)  # Cleanup also works after the run deadline.
-                    self.qmp.call("quit")
-                self.proc.wait(timeout=3)
-            except (Exception, KeyboardInterrupt):
+        try:
+            if self.proc and self.proc.poll() is None:
                 try:
-                    os.killpg(self.proc.pid, signal.SIGTERM)
+                    if self.qmp:
+                        self.qmp.budget = Budget(5)
+                        self.qmp.call("quit")
                     self.proc.wait(timeout=3)
-                except ProcessLookupError:
+                except (Exception, KeyboardInterrupt):
                     pass
-                except subprocess.TimeoutExpired:
-                    os.killpg(self.proc.pid, signal.SIGKILL)
-                    self.proc.wait(timeout=3)
-        if self.qmp:
-            self.qmp.close()
-        for handle in self.handles:
-            handle.close()
-        if self.socket_dir:
-            self.socket_dir.cleanup()
-        self.event("teardown", dict(returncode=self.proc.returncode if self.proc else None))
+            stop_owned_group(self.proc)
+        finally:
+            if self.qmp:
+                self.qmp.close()
+            for handle in self.handles:
+                handle.close()
+            if self.socket_dir:
+                self.socket_dir.cleanup()
+            self.event("teardown", dict(returncode=self.proc.returncode if self.proc else None))
