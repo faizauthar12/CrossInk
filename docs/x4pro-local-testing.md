@@ -32,6 +32,16 @@ between those versions. The newer base adds the PSRAM startup fallback in
 cause. A read-only GDB attempt could not inspect the live mapping because the
 installed debugger and QEMU disagree on the remote register packet layout.
 
+The reviewed language-download feature at
+`65b26dc24e9392f81bc145490e9fd0a929b46ed7` was also built separately using its
+existing `x4-pro-debug` configuration, without firmware source changes. Its
+verified image passes the same first three scenarios, then asserts at
+`I18n::begin():103` -> `HalFlashPartition::unmap():149` -> `spi_flash_munmap():248`.
+The remaining two scenarios do not pass. Its existing production image visibly
+boots Home but lacks debug activity logs; the compatibility preflight below
+rejects that log profile before starting firmware. This is separate from the
+observed mapping failure in the debug images.
+
 ## Trusted setup on this Mac
 
 The initial locally verified runtime is `/tmp/crossink-x4pro-runtime/qemu`.
