@@ -44,9 +44,25 @@ observed mapping failure in the debug images.
 
 ## Trusted setup on this Mac
 
-The initial locally verified runtime is `/tmp/crossink-x4pro-runtime/qemu`.
-The browser package is `/tmp/crossink-x4prosim-wasm.zip`. Temporary paths can be
-removed by the OS; preserve approved artifacts somewhere durable if needed.
+The durable tooling checkout is `/Users/home/code/crossink-x4pro-testing`.
+Approved local artifacts are copied into the persistent, versioned cache
+`/Users/home/.cache/crossink/x4prosim/55f6917885d89b60834cf8987177813e9fef648c/`:
+native runtime in `native/qemu/`, browser archive in `browser/x4prosim-wasm.zip`,
+and verified firmware inputs under `firmware/<source-commit>/<image-sha256>/`.
+All 170 native bundle files and both archives were hash-checked after copying.
+`copy-verification.json` retains those digests. Nothing was installed during
+this durable setup, and existing `/tmp` evidence/diagnostic inputs were retained
+at their original paths.
+
+`defaults.json` inside that pinned cache selects the verified feature debug
+image at source `65b26dc24e9392f81bc145490e9fd0a929b46ed7`, application SHA-256
+`126e2564e249402a056feb1d34047ec39d4508b25ef85298ca873d8ce0f6817e`.
+Its paths are relative to the cache and its emulator pin must match the runner.
+The normal commands below need no temporary paths or additional flags.
+`--runtime`, `--web-archive`, `--build-dir` and `--output` remain explicit overrides.
+New runs default to `~/.local/state/crossink/x4pro-runs/`; private QMP sockets
+remain temporary and are removed at teardown. The default image still has the
+documented MMU blocker: setup readiness does not imply five-scenario acceptance.
 `scripts/x4pro_local/provenance.json` records the full source pin, successful
 GitHub Actions run `38066668497`, artifact IDs and SHA-256 digests:
 
@@ -87,10 +103,10 @@ not disclosed. Source/configuration changes during the build reject attribution.
 It does not change the source or flash hardware:
 
 ```sh
-python3 scripts/x4pro_local/build.py \
-  --source /tmp/crossink-x4pro-local-testing \
+python3 /Users/home/code/crossink-x4pro-testing/scripts/x4pro_local/build.py \
+  --source /Users/home/code/crossink-x4pro-testing \
   --pio /Users/home/.local/bin/codex-pio-s3 \
-  --log /tmp/crossink-x4pro-build.log
+  --log /Users/home/.local/state/crossink/x4pro-build.log
 ```
 
 The designated `/Users/home/code/crossink-build-s3` checkout had unrelated
@@ -100,8 +116,8 @@ The helper is explicit about `--source`, so another isolated checkout can be
 selected. Inspect cached dependencies first and obtain required approval before
 letting PlatformIO install anything missing. Do not reuse the C3 package core.
 
-Every run takes `--build-dir` explicitly. It can point at a separately built
-feature image, including an existing language-feature worktree; no merge or
+Runs use the installed verified image by default. `--build-dir` can select a
+separately built feature image, including an existing feature worktree; no merge or
 edit is needed. Native manual readiness and all scenario predicates require
 the supported `x4-pro-debug` configuration (`LOG_LEVEL=2`), because activity-entry
 messages are debug logs. The runner checks for their format-string signature
@@ -130,10 +146,7 @@ own bootloader and partitions rather than invoking CrossPoint bare-app compositi
 ## One manual command
 
 ```sh
-python3 scripts/x4pro_local/run.py manual \
-  --runtime /tmp/crossink-x4pro-runtime/qemu \
-  --build-dir /tmp/crossink-x4pro-local-testing/.pio/build/x4-pro-debug \
-  --fixture sd-assets
+python3 /Users/home/code/crossink-x4pro-testing/scripts/x4pro_local/run.py manual
 ```
 
 This opens native SDL with keyboard Up/Down/Power and pointer/touch controls.
@@ -149,10 +162,7 @@ asynchronous reset/shutdown events are retained in the event log.
 For browser manual use, change the backend of the same command:
 
 ```sh
-python3 scripts/x4pro_local/run.py manual --backend browser \
-  --web-archive /tmp/crossink-x4prosim-wasm.zip \
-  --build-dir /tmp/crossink-x4pro-local-testing/.pio/build/x4-pro-debug \
-  --fixture sd-assets --cdp-port 0
+python3 /Users/home/code/crossink-x4pro-testing/scripts/x4pro_local/run.py manual --backend browser --cdp-port 0
 ```
 
 The runner creates a fresh Chrome profile and an OS-assigned localhost HTTP port,
@@ -162,7 +172,7 @@ The browser URL and profile are recorded in `browser.json`. For an optional
 assertion, console capture and screenshot of this private tab:
 
 ```sh
-node scripts/x4pro_local/browser_probe.mjs /absolute/path/to/run-directory 90
+node /Users/home/code/crossink-x4pro-testing/scripts/x4pro_local/browser_probe.mjs /absolute/path/to/run-directory 90
 ```
 
 The probe uses CrossInk Home entry followed by panel completion, independent of
@@ -182,9 +192,7 @@ firmware to the hosted emulator.
 ## One agent test command
 
 ```sh
-python3 scripts/x4pro_local/run.py test \
-  --runtime /tmp/crossink-x4pro-runtime/qemu \
-  --build-dir /tmp/crossink-x4pro-local-testing/.pio/build/x4-pro-debug
+python3 /Users/home/code/crossink-x4pro-testing/scripts/x4pro_local/run.py test
 ```
 
 The suite uses a fresh `sd-assets` card, Lyra portrait layout, Small UI scale,
@@ -220,7 +228,7 @@ its known `sd-assets` fixture. To replay a retained seed, add
 `sd-assets` and match the unchanged seed hash. Do not use a guest-modified card
 for fresh-fixture acceptance.
 
-Each run prints a new private directory under `/tmp/crossink-x4pro-runs`:
+Each run prints a new private directory under `~/.local/state/crossink/x4pro-runs`:
 `manifest.json` contains input hashes, source/build references, pin, timeouts,
 results and scenario status; `events.jsonl` holds QMP requests/replies;
 `serial.log`, `stdout.log`, `stderr.log`, panel PNGs, final `flash.bin` and
@@ -239,7 +247,7 @@ exits. The same bounded group cleanup is shared by QEMU, Chrome and build runs.
 Host runner contracts can be checked without firmware:
 
 ```sh
-python3 -m unittest discover -s scripts/x4pro_local -p 'test_*.py' -v
+python3 -m unittest discover -s /Users/home/code/crossink-x4pro-testing/scripts/x4pro_local -p 'test_*.py' -v
 ```
 
 These tests include a repository-owned stub QMP process to check SIGTERM,

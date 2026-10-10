@@ -23,6 +23,25 @@ CRASH = re.compile(r"Guru Meditation|panic(?:'ed|ked)?|abort\(\)|assert failed|A
 REFRESH = r"Wait complete:\s+8179_(?:DRF|gray_pre_DRF|gray_split_DRF)"
 
 
+def installed_defaults(cache=None):
+    cache = Path(cache or Path.home() / ".cache/crossink/x4prosim" / PIN["commit"]).resolve()
+    result = dict(runtime=str(cache / "native/qemu"), web_archive=str(cache / "browser/x4prosim-wasm.zip"),
+                  build_dir=None, output=str(Path.home() / ".local/state/crossink/x4pro-runs"))
+    path = cache / "defaults.json"
+    if path.exists():
+        data = json.loads(path.read_text())
+        if data.get("emulator_commit") != PIN["commit"]:
+            raise ValueError(f"Installed configuration pin differs from reviewed emulator: {path}")
+        for name in ("runtime", "web_archive", "build_dir"):
+            if name not in data:
+                continue
+            value = (cache / data[name]).resolve()
+            if Path(data[name]).is_absolute() or not value.is_relative_to(cache):
+                raise ValueError(f"Installed {name} must be relative to the pinned cache")
+            result[name] = str(value)
+    return result
+
+
 class Terminated(KeyboardInterrupt):
     def __init__(self, signum):
         self.signum = signum

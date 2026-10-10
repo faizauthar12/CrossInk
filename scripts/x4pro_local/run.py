@@ -19,7 +19,7 @@ import threading
 import time
 import zipfile
 
-from core import ROOT, PIN, Budget, LogProfileError, Native, Terminated, command, compose, fixture, ignore_termination_signals, install_signal_handlers, require_debug_image, sha, stop_owned_group, write_json
+from core import ROOT, PIN, Budget, LogProfileError, Native, Terminated, command, compose, fixture, ignore_termination_signals, install_signal_handlers, installed_defaults, require_debug_image, sha, stop_owned_group, write_json
 
 
 def prepare(args):
@@ -122,21 +122,24 @@ def browser(args, run):
 
 def main():
     install_signal_handlers()
+    defaults = installed_defaults()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("manual", "test"))
     parser.add_argument("--backend", choices=("native", "browser"), default="native")
-    parser.add_argument("--runtime", help="Pinned extracted qemu directory containing bin/ and share/")
-    parser.add_argument("--build-dir", required=True, type=Path)
+    parser.add_argument("--runtime", default=defaults["runtime"], help="Pinned qemu directory; defaults to installed versioned cache")
+    parser.add_argument("--build-dir", default=defaults["build_dir"], type=Path, help="CrossInk build inputs; defaults to installed verified image")
     parser.add_argument("--fixture", choices=("blank-home", "reading", "sd-assets"), default="sd-assets")
     parser.add_argument("--sd", type=Path, help="Read-only input seed; runner always copies it")
-    parser.add_argument("--output", default="/tmp/crossink-x4pro-runs")
+    parser.add_argument("--output", default=defaults["output"])
     parser.add_argument("--ready-timeout", type=float, default=90)
     parser.add_argument("--action-timeout", type=float, default=30)
     parser.add_argument("--overall-timeout", type=float)
-    parser.add_argument("--web-archive", help="Exact pinned browser GitHub Actions ZIP")
+    parser.add_argument("--web-archive", default=defaults["web_archive"], help="Pinned browser ZIP; defaults to installed versioned cache")
     parser.add_argument("--chrome", default="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     parser.add_argument("--cdp-port", type=int, help="Optional private loopback CDP port, choose per run")
     args = parser.parse_args()
+    if args.build_dir is None:
+        parser.error("Pass --build-dir or configure build_dir in the pinned cache defaults.json")
     if args.overall_timeout is None:
         args.overall_timeout = 600 if args.mode == "test" else 3600
     if any(not math.isfinite(value) or value <= 0 for value in

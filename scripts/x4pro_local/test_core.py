@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
-from core import ACTIVITY_LOG_SIGNATURE, Budget, LogProfileError, Native, PIN, QMP, compose, fixture, require_debug_image, sha
+from core import ACTIVITY_LOG_SIGNATURE, Budget, LogProfileError, Native, PIN, QMP, compose, fixture, installed_defaults, require_debug_image, sha
 
 
 class Composition(unittest.TestCase):
@@ -176,6 +176,23 @@ sys.exit(run.main())
 
 
 class Control(unittest.TestCase):
+    def test_installed_defaults_are_pinned_relative_and_optional(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp).resolve()
+            self.assertIsNone(installed_defaults(cache)["build_dir"])
+            config = cache / "defaults.json"
+            data = dict(emulator_commit=PIN["commit"], build_dir="firmware/verified-image")
+            config.write_text(json.dumps(data))
+            self.assertEqual(installed_defaults(cache)["build_dir"], str(cache / "firmware/verified-image"))
+            data["build_dir"] = "../outside"
+            config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "relative to the pinned cache"):
+                installed_defaults(cache)
+            data.update(build_dir="firmware/verified-image", emulator_commit="wrong-pin")
+            config.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "pin differs"):
+                installed_defaults(cache)
+
     def test_teardown_kills_orphan_after_group_leader_exits(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
