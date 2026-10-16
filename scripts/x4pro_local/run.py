@@ -28,7 +28,7 @@ def prepare(args):
     run = Path(tempfile.mkdtemp(prefix="run-", dir=root))
     os.chmod(run, 0o700)
     print(f"Run evidence: {run}", flush=True)
-    firmware = compose(args.build_dir, run / "flash.bin")
+    firmware = compose(args.build_dir, run / "flash.bin", chip=5 if getattr(args, "device", "x4-pro") in ("x3", "x4") else 9)
     if args.sd:
         seed = Path(args.sd).resolve()
         if args.mode == "test":
@@ -40,7 +40,7 @@ def prepare(args):
     shutil.copyfile(seed, run / "sd.img")
     manifest = dict(schema=1, pin=PIN, firmware=firmware,
         fixture=dict(name=args.fixture if not args.sd else "explicit-input", path=str(seed), sha256=sha(seed)),
-        mode=args.mode, backend=args.backend, timing="model shift=2,sleep=on; browser turbo=0",
+        device=getattr(args, "device", "x4-pro"), mode=args.mode, backend=args.backend, timing="model shift=2,sleep=on; browser turbo=0",
         network="disabled", harness_source=dict(path=str(ROOT),
             commit=command(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.decode().strip(),
             status=command(["git", "status", "--short"], cwd=ROOT).stdout.decode()),
@@ -125,8 +125,11 @@ def main():
     defaults = installed_defaults()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("manual", "test"))
+    parser.add_argument("--device", choices=("x4-pro", "x3", "x4"), default="x4-pro")
+    parser.add_argument("--release-runtime", action="store_true", help="Use pinned eink-qemu 0.5.0 native runtime")
+    parser.add_argument("--headless", action="store_true", help="Native diagnostic run without a window")
     parser.add_argument("--backend", choices=("native", "browser"), default="native")
-    parser.add_argument("--runtime", default=defaults["runtime"], help="Pinned qemu directory; defaults to installed versioned cache")
+    parser.add_argument("--runtime", help="Pinned qemu directory; defaults to installed versioned cache")
     parser.add_argument("--build-dir", default=defaults["build_dir"], type=Path, help="CrossInk build inputs; defaults to installed verified image")
     parser.add_argument("--fixture", choices=("blank-home", "reading", "sd-assets"), default="sd-assets")
     parser.add_argument("--sd", type=Path, help="Read-only input seed; runner always copies it")
@@ -138,6 +141,18 @@ def main():
     parser.add_argument("--chrome", default="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     parser.add_argument("--cdp-port", type=int, help="Optional private loopback CDP port, choose per run")
     args = parser.parse_args()
+    profile = None
+    if args.release_runtime:
+        from launch import device_profile, runtime_path
+        profile = device_profile(args.device)
+        if args.runtime is None:
+            args.runtime = str(runtime_path(args.device))
+    elif args.device != "x4-pro":
+        parser.error("X3/X4 require --release-runtime")
+    if (args.device != "x4-pro" or args.release_runtime) and (args.mode != "manual" or args.backend != "native"):
+        parser.error("Release runtime supports native manual runs; legacy acceptance/browser workflows retain their original pin")
+    if args.runtime is None:
+        args.runtime = defaults["runtime"]
     if args.build_dir is None:
         parser.error("Pass --build-dir or configure build_dir in the pinned cache defaults.json")
     if args.overall_timeout is None:
@@ -161,7 +176,9 @@ def main():
             browser(args, run)
         else:
             require_debug_image(manifest["firmware"])
-            native = Native(args.runtime, run, args.overall_timeout, args.action_timeout, args.mode == "manual")
+            native = Native(args.runtime, run, args.overall_timeout, args.action_timeout, args.mode == "manual" and not args.headless, profile=profile)
+            if profile:
+                manifest.update(pin=profile, timing=f"model shift={profile['shift']},sleep=on")
             native.start()
             native.ready(timeout=args.ready_timeout)
             if args.mode == "test":
@@ -170,6 +187,8 @@ def main():
             else:
                 print("Private QMP details: " + str(run / "control.json") + "; Ctrl-C stops this run.", flush=True)
                 while time.monotonic() < native.budget.end:
+                    if native.proc.poll() == 0:
+                        break
                     native.health()
                     time.sleep(0.2)
         manifest["status"] = "passed" if args.mode == "test" else "stopped"

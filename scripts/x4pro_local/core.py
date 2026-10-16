@@ -124,16 +124,16 @@ def stop_owned_group(process, grace=3):
     process.wait(timeout=grace)
 
 
-def compose(build, output):
+def compose(build, output, chip=9):
     """Keep CrossInk's own bootloader/table, and validate the app0 bounds."""
     build, output = Path(build).resolve(), Path(output)
     boot = (build / "bootloader.bin").read_bytes()
     table = (build / "partitions.bin").read_bytes()
     app = (build / "firmware.bin").read_bytes()
-    if len(boot) < 24 or boot[0] != 0xE9 or struct.unpack_from("<H", boot, 12)[0] != 9:
-        raise ValueError("Expected an ESP32-S3 bootloader, from a CrossInk X4 Pro build")
-    if len(app) < 24 or app[0] != 0xE9 or struct.unpack_from("<H", app, 12)[0] != 9:
-        raise ValueError("Expected an ESP32-S3 application")
+    if len(boot) < 24 or boot[0] != 0xE9 or struct.unpack_from("<H", boot, 12)[0] != chip:
+        raise ValueError(f"Expected an ESP32-{'S3' if chip == 9 else 'C3'} bootloader")
+    if len(app) < 24 or app[0] != 0xE9 or struct.unpack_from("<H", app, 12)[0] != chip:
+        raise ValueError(f"Expected an ESP32-{'S3' if chip == 9 else 'C3'} application")
     partitions = []
     for offset in range(0, len(table) - 31, 32):
         magic, kind, subtype, start, size, label, flags = struct.unpack_from("<HBBII16sI", table, offset)
@@ -295,7 +295,8 @@ class QMP:
 
 
 class Native:
-    def __init__(self, runtime, run, overall=300, action=30, display=False):
+    def __init__(self, runtime, run, overall=300, action=30, display=False, profile=None):
+        self.profile = profile
         self.run, self.runtime = Path(run), Path(runtime).resolve()
         self.budget, self.action = Budget(overall), action
         self.proc = self.qmp = None
@@ -309,19 +310,20 @@ class Native:
             stream.write(json.dumps(dict(time=time.time(), kind=kind, data=data)) + "\n")
 
     def start(self):
-        binary = self.runtime / "bin/qemu-system-xtensa"
-        if sha(binary) != PIN["native_macos_arm64"]["binary_sha256"]:
+        profile = self.profile or dict(binary="qemu-system-xtensa", binary_sha256=PIN["native_macos_arm64"]["binary_sha256"], machine="x4pro", shift=2)
+        binary = self.runtime / "bin" / profile["binary"]
+        if sha(binary) != profile["binary_sha256"]:
             raise ValueError("Native binary differs from the reviewed macOS arm64 pin")
         self.socket_dir = tempfile.TemporaryDirectory(prefix="ciq-", dir="/tmp")
         sock = Path(self.socket_dir.name) / "qmp"
-        argv = [str(binary), "-L", str(self.runtime / "share/qemu"), "-machine", "x4pro",
-                "-icount", "shift=2,sleep=on", "-display", "sdl,show-cursor=on" if self.display else "none",
+        argv = [str(binary), "-L", str(self.runtime / "share/qemu"), "-machine", profile["machine"],
+                "-icount", f"shift={profile['shift']},sleep=on", "-display", "sdl,show-cursor=on" if self.display else "none",
                 "-serial", "null", "-drive", f"file={self.run / 'flash.bin'},if=mtd,format=raw",
                 "-drive", f"file={self.run / 'sd.img'},if=sd,format=raw", "-nic", "none",
                 "-chardev", f"file,id=cdc,path={self.run / 'serial.log'}",
                 "-global", "driver=misc.esp32s3.usb_serial_jtag,property=chardev,value=cdc",
                 "-qmp", f"unix:{sock},server=on,wait=off"]
-        self.event("launch", dict(argv=argv, binary_sha256=sha(binary), timing="model shift=2,sleep=on"))
+        self.event("launch", dict(argv=argv, binary_sha256=sha(binary), timing=f"model shift={profile['shift']},sleep=on"))
         write_json(self.run / "control.json", dict(qmp=str(sock), pid=None))
         out, err = (self.run / "stdout.log").open("wb"), (self.run / "stderr.log").open("wb")
         self.handles = [out, err]
@@ -365,9 +367,11 @@ class Native:
         return self.until(lambda: re.search(pattern, self.serial()[after:]), pattern, timeout)
 
     def ready(self, after=0, timeout=90):
-        self.wait_log(r"Entering activity: Home[\s\S]*" + REFRESH, after, timeout)
-        if "Device: xteink_x4_pro" not in self.logs():
-            raise AssertionError("CrossInk did not report its X4 Pro board")
+        profile = self.profile or dict(refresh=REFRESH, board="xteink_x4_pro")
+        self.wait_log(r"Entering activity: Home[\s\S]*" + profile["refresh"], after, timeout)
+        board_log = profile.get("board_log", re.escape("Device: " + profile["board"]) + r"(?:\s|$)")
+        if not re.search(board_log, self.logs()):
+            raise AssertionError("CrossInk did not report its " + profile["board"] + " board")
         self.shot("home" if not after else f"home-{after}")
 
     def shot(self, name):

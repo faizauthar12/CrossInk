@@ -6,6 +6,97 @@ The emulator is an external dependency, initially pinned to
 This supplements the fast native CMake/CTest, sanitizer and SDL simulator tests.
 Keep those tests as the first checks for parser, store and resource changes.
 
+## Build current changes and launch
+
+On the configured Apple Silicon Mac:
+
+```sh
+crossink-emulator                 # X4 Pro
+crossink-emulator x3
+crossink-emulator x4
+```
+
+From any CrossInk checkout (including a nested directory), the command builds
+that checkout, including staged, unstaged and untracked source and existing SDK
+edits. Outside a checkout it defaults to `~/code/crossink`. Override with
+`--source /path/to/crossink`, or set `CROSSINK_SOURCE` for a preferred checkout.
+The launcher prints the selected source and build log before starting.
+`crossink-emulator --list-devices` lists hardware-model availability.
+`bin/crossink-emulator.command` also runs from Terminal or Finder; without the
+installed short command, use `python3 scripts/x4pro_local/launch.py`.
+
+These are actual firmware emulators, with no SDL application-simulator fallback:
+
+| Device | Firmware environment | Emulator machine |
+| --- | --- | --- |
+| X4 Pro | `x4-pro-debug` | `x4pro,panel=uc8179` |
+| X3 | `debug` | `x3` |
+| X4 | `debug` | `x4` |
+| Sticky | Unavailable | No matching hardware model |
+| X4 Classic | Unavailable | No matching hardware model |
+
+The new launcher uses [eink-qemu 0.5.0](https://github.com/serialx/eink-qemu/releases/tag/0.5.0),
+source `2c7443b56b7ddf10ffd8ab0124de6f4babdd1db7`. This is separate from the
+older pinned browser and five-scenario acceptance workflows documented below.
+The X4 Pro launcher selects the UC8179 panel modeled by the original workflow.
+X3 and X4 share the C3 application environment, but run different hardware models.
+Sticky and X4 Classic are rejected before building: sharing an ESP32 chip with
+another board does not make its display, storage or input hardware compatible.
+
+Each launch builds exactly one debug environment with `-j1`, using
+`~/.local/bin/codex-pio-s3` for X4 Pro or `codex-pio-c3` for X3/X4. It builds in
+the selected source checkout, with separate incremental build
+outputs under `.pio/emulator-s3/build/` and `.pio/emulator-c3/build/`. This prevents
+the two PlatformIO cores from clearing each other's build directories. Libraries
+retain their standard per-environment `.pio/libdeps/` paths so the existing
+SdFat and wolfSSL patch scripts continue to work. It
+initializes missing submodules, preserving existing SDK checkouts and edits.
+Do not run direct PlatformIO builds concurrently against the same MCU core;
+the helper's MCU-specific lock serializes these launchers and the older helper.
+The designated hardware build worktrees are not synchronized or reset.
+
+A failed or changed-during-build source stops the launcher. A successful build
+copies its three firmware binaries and source/hash record into a private build
+directory **while still holding the build lock**. The emulator then receives
+that copy explicitly, never the saved default firmware. It uses fresh flash and
+a disposable SD card with a synthetic test EPUB; Wi-Fi is disabled. Runs and
+build copies remain under `~/.local/state/crossink/x4pro-runs/` for inspection.
+Each run retains roughly 80 MiB of flash/SD evidence plus build inputs. Old run
+and build directories can be removed when no longer needed. Ctrl-C stops the
+owned build/emulator processes. `--headless`, `--ready-timeout` and
+`--overall-timeout` are available for diagnostics. Normal interactive runs last
+at most one hour by default. Timeouts fail if Home and a completed panel refresh
+are not observed; a visible window alone is not accepted as a successful boot.
+
+The new runtime packages must be installed once. The launcher never downloads
+or upgrades an emulator automatically. On this Mac they are already installed
+under `~/.cache/crossink/eink-qemu/0.5.0/{xtensa,riscv32}/qemu/`. To reproduce,
+download these assets from the release above, check the **archive** SHA-256,
+and extract each archive's `qemu/` directory beneath its target directory:
+
+| Apple Silicon archive | SHA-256 |
+| --- | --- |
+| `eink-qemu-xtensa-softmmu-0.5.0-aarch64-apple-darwin.tar.xz` | `ac6c03263be582205d9d900c6d53ff02e6ed3302bf5ab57a02551c906b328e7b` |
+| `eink-qemu-riscv32-softmmu-0.5.0-aarch64-apple-darwin.tar.xz` | `b2b172dc52ff387e49fa75b99a263ee3273f8177901af4a0c190edc1fd5624af` |
+
+The launcher additionally verifies each executable against its pinned digest in
+`launch.py`. It requires the existing Python, mtools/dosfstools, Homebrew runtime
+libraries, and MCU-specific PlatformIO wrappers described below. The short
+`~/.local/bin/crossink-emulator` command points to the durable tooling checkout;
+keep that checkout even if temporary implementation worktrees are removed.
+This launcher neither flashes hardware nor proves hardware behavior. Compare
+with a physical device by building the same source for that board, then checking
+Home, opening the same book, and using its buttons/touch controls. Emulator
+speed and memory behavior do not establish physical-device performance.
+
+The launcher was validated on 2026-10-16 with current-source C3 `debug` and S3
+`x4-pro-debug` builds at source `3fae9c15efcdba15ee13bda0cd4fc4cd619dee34`, SDK
+`3af4166a36aa51a743e26a528d9c570106753a98`. X3, X4 and X4 Pro reached Home and
+completed a panel refresh; the saved panel images were visually inspected.
+The 22 host contract tests and independent code review passed. This verifies
+build/launch behavior; the older five-scenario acceptance suite below was not
+rerun or promoted to the newer runtime.
+
 ## Current acceptance status
 
 On macOS arm64, the pinned native and browser runtimes boot CrossInk X4 Pro.
