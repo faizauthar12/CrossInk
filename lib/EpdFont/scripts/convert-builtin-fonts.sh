@@ -173,9 +173,14 @@ generate_reading_fonts
 
 # Monospace for preformatted (<pre>, white-space) blocks. Regular only; tabular digits
 # (no --pnum) keep columns aligned; box drawing (U+2500-257F) covers directory trees.
+# Code-only charset (Latin, punctuation, currency, arrows, box drawing) to save flash;
+# anything else in a code block renders as U+FFFD.
 for size in ${READING_FONT_SIZES[@]}; do
   python fontconvert.py jetbrainsmono_${size}_regular $size ../builtinFonts/source/JetBrainsMono/JetBrainsMono-Regular.ttf \
-    --additional-intervals 0x2500,0x257F --2bit --compress --darken-aa --zopfli \
+    --no-default-intervals --additional-intervals 0x0000,0x024F --additional-intervals 0x2000,0x206F \
+    --additional-intervals 0x20A0,0x20CF --additional-intervals 0x2190,0x21FF \
+    --additional-intervals 0x2500,0x257F --additional-intervals 0xFFFD,0xFFFD \
+    --2bit --compress --darken-aa --zopfli \
     > ../builtinFonts/jetbrainsmono_${size}_regular.h
   echo "Generated ../builtinFonts/jetbrainsmono_${size}_regular.h"
 done

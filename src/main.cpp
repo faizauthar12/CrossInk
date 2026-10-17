@@ -238,10 +238,13 @@ EpdFont jetbrainsmono10Font(&jetbrainsmono_10_regular);
 EpdFontFamily jetbrainsmono10FontFamily(&jetbrainsmono10Font);
 EpdFont jetbrainsmono12Font(&jetbrainsmono_12_regular);
 EpdFontFamily jetbrainsmono12FontFamily(&jetbrainsmono12Font);
+#if CROSSINK_SCALABLE_FONTS
+// Only scalable reader sizes (up to 44pt) reach mono 14/16; built-in 10-16pt tops out at mono 12.
 EpdFont jetbrainsmono14Font(&jetbrainsmono_14_regular);
 EpdFontFamily jetbrainsmono14FontFamily(&jetbrainsmono14Font);
 EpdFont jetbrainsmono16Font(&jetbrainsmono_16_regular);
 EpdFontFamily jetbrainsmono16FontFamily(&jetbrainsmono16Font);
+#endif
 
 EpdFont smallFont(&inter_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
@@ -1241,12 +1244,16 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
 #endif
   renderer.insertFont(JETBRAINSMONO_10_FONT_ID, jetbrainsmono10FontFamily);
   renderer.insertFont(JETBRAINSMONO_12_FONT_ID, jetbrainsmono12FontFamily);
-  renderer.insertFont(JETBRAINSMONO_14_FONT_ID, jetbrainsmono14FontFamily);
-  renderer.insertFont(JETBRAINSMONO_16_FONT_ID, jetbrainsmono16FontFamily);
   // Preformatted EPUB blocks pick the mono size whose line height best matches the reader font.
   // Registered on every target: scalable-font builds still need a bitmap monospace face.
+#if CROSSINK_SCALABLE_FONTS
+  renderer.insertFont(JETBRAINSMONO_14_FONT_ID, jetbrainsmono14FontFamily);
+  renderer.insertFont(JETBRAINSMONO_16_FONT_ID, jetbrainsmono16FontFamily);
   renderer.setMonospaceFonts(
       {JETBRAINSMONO_10_FONT_ID, JETBRAINSMONO_12_FONT_ID, JETBRAINSMONO_14_FONT_ID, JETBRAINSMONO_16_FONT_ID});
+#else
+  renderer.setMonospaceFonts({JETBRAINSMONO_10_FONT_ID, JETBRAINSMONO_12_FONT_ID});
+#endif
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);

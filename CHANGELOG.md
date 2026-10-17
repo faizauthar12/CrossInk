@@ -135,6 +135,7 @@
 
 ### Changed
 
+- The built-in code-block font takes about 40% less flash on ESP32-S3 readers and about 70% less on X3/X4, which keep only the two sizes their reader fonts use. It covers Latin text, punctuation, currency, arrows, and box drawing; other scripts inside code blocks show as a replacement mark.
 - SD fonts containing both BMP and supplementary Unicode ranges use less resident lookup-table memory, and TTF fonts validate faster while preserving font integrity checks.
 - English is the only built-in interface language. Other languages are included in a separate release download and installed through Language settings.
 - Display → Hide Battery % is replaced by the Battery option in each status bar's settings; existing choices carry over.
