@@ -59,6 +59,7 @@
 
 ### Changed
 
+- The built-in code-block font takes about 40% less flash on ESP32-S3 readers and about 70% less on X3/X4, which keep only the two sizes their reader fonts use. It covers Latin text, punctuation, currency, arrows, and box drawing; other scripts inside code blocks show as a replacement mark.
 - `Settings > System > KOReader Sync` is now `Sync Server`. Reading Stats and Clippings are opt-in under `What to Sync` and require server support.
 - English is the only built-in interface language. Download other languages through Language settings. On PSRAM-equipped devices with small factory data partitions, including X4 Pro, language and hyphenation packs can use an SD cache without repartitioning.
 - Battery display is now set per status bar and carries over the old Hide Battery % preference.
