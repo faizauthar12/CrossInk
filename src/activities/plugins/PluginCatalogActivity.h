@@ -47,7 +47,7 @@ class PluginCatalogActivity final : public CatalogActivity {
 #endif
   const bool fromHome;
   std::string previousPageLabel, nextPageLabel;
-  enum class Work { None, StartBrowse, FetchPage, BeginAuth, PollAuth, Download };
+  enum class Work { None, StartBrowse, FetchPage, BeginAuth, PollAuth, Details, Download };
   Work pendingWork = Work::None;
   int pendingArgument = 0;
   void startBrowseNow();
@@ -68,6 +68,10 @@ class PluginCatalogActivity final : public CatalogActivity {
     std::string titlePath, authorPath, idPath, urlPath;
     // Compare this item field against the installed manifest version for badges.
     std::string versionPath;
+    std::string descriptionPath, detailAuthorPath, repositoryPath, detailsUrlPath, detailsFormatPath;
+    bool hasItemDetails() const {
+      return tracksInstalls() || !descriptionPath.empty() || !repositoryPath.empty() || !detailsUrlPath.empty();
+    }
     // Optional catalog-entry compatibility fields. Empty paths mean no
     // restriction; entries that omit the mapped values remain visible.
     std::string compatFamilyPath, compatApiMinPath, compatRequiresPath;
@@ -120,9 +124,10 @@ class PluginCatalogActivity final : public CatalogActivity {
 
   struct Item {
     std::string title, author, id, url;
-    std::string version;  // catalog version (tracksInstalls only)
-    std::string status;   // computed install/update badge shown in the row value
-    bool isDir = false;   // a container/folder (navigable), not a downloadable file
+    std::string version;   // catalog version (tracksInstalls only)
+    std::string status;    // computed install/update badge shown in the row value
+    int sourceIndex = -1;  // Original JSON row, preserved across compatibility filtering.
+    bool isDir = false;    // a container/folder (navigable), not a downloadable file
     // Bundle download only: base URL + relative file paths for this item.
     std::string base;
     std::vector<std::string> files;
@@ -219,6 +224,11 @@ class PluginCatalogActivity final : public CatalogActivity {
   bool parseXmlList();
   bool parseBrowseResponse();
   void activateItem(int itemIndex);  // XML list: navigate into a folder, else download
+  struct ItemDetails {
+    std::string author, description, repository, detailsUrl, detailsFormat;
+  };
+  bool loadItemDetails(int itemIndex, ItemDetails& details);
+  void showItemDetails(int itemIndex);
   void downloadItem(int itemIndex);
   HttpDownloader::DownloadError downloadBundle(const Item& item);
   HttpDownloader::DownloadError downloadBook(const Item& item);

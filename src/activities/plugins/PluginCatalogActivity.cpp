@@ -24,12 +24,14 @@
 #include <cstring>
 #include <new>
 #include <string_view>
+#include <type_traits>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
 #include "activities/settings/PluginHubInstallActivity.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "activities/util/DetailsActivity.h"
 #include "components/CatalogScreens.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -64,6 +66,11 @@ constexpr size_t MAX_API_RESPONSE = 48 * 1024;
 constexpr char BROWSE_TMP_PATH[] = "/.pcat_tmp.json";
 constexpr size_t MAX_BROWSE_RESPONSE = 1024 * 1024;
 constexpr size_t MAX_BROWSE_LIST_INDEX_RESPONSE = 16 * 1024;
+constexpr size_t MAX_ITEM_DETAILS_RESPONSE = 8 * 1024;
+constexpr auto DETAIL_DESCRIPTION = JsonListParser::F_URL;
+constexpr auto DETAIL_REPOSITORY = JsonListParser::F_BASE;
+constexpr auto DETAIL_PAGE_URL = JsonListParser::F_URL;
+constexpr auto DETAIL_PAGE_FORMAT = JsonListParser::F_BASE;
 constexpr int MAX_PAGE_SIZE = 16;
 
 // JsonListParser has six generic field slots. The compatibility and details
@@ -233,6 +240,24 @@ bool PluginCatalogActivity::loadManifest() {
   manifest.idPath = browse["fields"]["id"] | "";
   manifest.urlPath = browse["fields"]["url"] | "";
   manifest.versionPath = browse["fields"]["version"] | "";
+  manifest.descriptionPath = browse["fields"]["description"] | "";
+  manifest.detailAuthorPath = browse["fields"]["detail_author"] | "";
+  manifest.repositoryPath = browse["fields"]["repository"] | "";
+  if (manifest.detailAuthorPath.empty()) manifest.detailAuthorPath = manifest.authorPath;
+  manifest.detailsUrlPath = browse["fields"]["details_url"] | "";
+  manifest.detailsFormatPath = browse["fields"]["details_format"] | "";
+  // Version-tracked catalogs predate item details. Conventional field names
+  // keep those manifests working while newer catalogs can map the fields explicitly.
+  if (manifest.tracksInstalls()) {
+    if (manifest.descriptionPath.empty()) manifest.descriptionPath = "description";
+    if (manifest.repositoryPath.empty()) manifest.repositoryPath = "repository";
+    if (manifest.detailsUrlPath.empty()) manifest.detailsUrlPath = "details.url";
+    if (manifest.detailsFormatPath.empty()) manifest.detailsFormatPath = "details.format";
+    if (manifest.detailAuthorPath.empty() || manifest.detailAuthorPath == manifest.descriptionPath) {
+      manifest.detailAuthorPath = "author";
+    }
+  }
+
   JsonVariantConst compatibility = browse["compatibility"];
   manifest.compatFamilyPath = compatibility["firmware_family"] | "";
   manifest.compatApiMinPath = compatibility["plugin_api_min"] | "";
@@ -443,6 +468,9 @@ void PluginCatalogActivity::loop() {
       break;
     case Work::FetchPage:
       fetchPageNow(argument);
+      break;
+    case Work::Details:
+      showItemDetails(argument);
       break;
     case Work::BeginAuth:
       beginAuthNow();
@@ -847,6 +875,7 @@ bool PluginCatalogActivity::parseBrowseResponse() {
     item.id = std::move(row.field[JsonListParser::F_ID]);
     item.url = std::move(row.field[JsonListParser::F_URL]);
     item.version = std::move(row.field[JsonListParser::F_VERSION]);
+    item.sourceIndex = thisRow;
     item.base = std::move(row.field[JsonListParser::F_BASE]);
     item.files = std::move(row.files);
     items[itemCount++] = std::move(item);
@@ -1312,7 +1341,120 @@ void PluginCatalogActivity::activateItem(const int itemIndex) {
     return;
   }
 
+  if (!manifest.isXmlList() && manifest.hasItemDetails()) {
+    beginLoading();
+    pendingArgument = itemIndex;
+    pendingWork = Work::Details;
+    return;
+  }
   downloadItem(itemIndex);
+}
+
+bool PluginCatalogActivity::loadItemDetails(const int itemIndex, ItemDetails& details) {
+  if (itemIndex < 0 || itemIndex >= static_cast<int>(itemCount)) return false;
+  const Item& target = items[itemIndex];
+  const std::string unused;
+  // Read only the selected original row; unrelated descriptions consume no budget.
+  const auto streamFor = [&](auto& capture, const std::string* author, const std::string* extraUrl,
+                             const std::string* extraBase) {
+    const std::string* fields[JsonListParser::F_COUNT] = {};
+    fields[JsonListParser::F_TITLE] = &manifest.titlePath;
+    fields[JsonListParser::F_AUTHOR] = author;
+    fields[JsonListParser::F_ID] = &manifest.idPath;
+    fields[JsonListParser::F_URL] = extraUrl;
+    fields[JsonListParser::F_VERSION] = &manifest.versionPath;
+    fields[JsonListParser::F_BASE] = extraBase;
+    auto parser = makeUniqueNoThrow<JsonListParser>(
+        manifest.itemsPath, fields, unused,
+        [](void* context, JsonListParser::Row& row) {
+          (*static_cast<std::remove_reference_t<decltype(capture)>*>(context))(row);
+        },
+        &capture);
+    if (parser) {
+      parser->selectRow(target.sourceIndex);
+      parser->setCaptureBudget(8 * 1024);
+    }
+    return streamBrowseFile(parser.get());
+  };
+
+  bool found = false;
+  auto captureMetadata = [&](JsonListParser::Row& row) {
+    if (found) return;
+    details.author = std::move(row.field[JsonListParser::F_AUTHOR]);
+    details.description = std::move(row.field[DETAIL_DESCRIPTION]);
+    details.repository = std::move(row.field[DETAIL_REPOSITORY]);
+    found = true;
+  };
+  const bool metadataFound =
+      streamFor(captureMetadata, &manifest.detailAuthorPath, &manifest.descriptionPath, &manifest.repositoryPath) &&
+      found;
+  if (manifest.detailsUrlPath.empty()) return metadataFound;
+
+  bool pageFound = false;
+  auto capturePage = [&](JsonListParser::Row& row) {
+    if (pageFound) return;
+    details.detailsUrl = std::move(row.field[DETAIL_PAGE_URL]);
+    details.detailsFormat = std::move(row.field[DETAIL_PAGE_FORMAT]);
+    pageFound = true;
+  };
+  return (streamFor(capturePage, &unused, &manifest.detailsUrlPath, &manifest.detailsFormatPath) && pageFound) ||
+         metadataFound;
+}
+
+void PluginCatalogActivity::showItemDetails(const int itemIndex) {
+  if (itemIndex < 0 || itemIndex >= static_cast<int>(itemCount)) return;
+  const Item& item = items[itemIndex];
+
+  ItemDetails details;
+  loadItemDetails(itemIndex, details);
+
+  DetailsSpec spec;
+  spec.header = catalogTitle;
+  spec.title = item.title;
+  if (!details.author.empty()) spec.author = details.author;
+  if (!details.repository.empty()) spec.source = details.repository;
+  if (!details.detailsUrl.empty()) {
+    String response;
+    const std::string url = substituted(details.detailsUrl, &item);
+    const int status = pluginhttp::request(session.get(), url, "GET", "", {}, response, MAX_ITEM_DETAILS_RESPONSE);
+    const bool html = details.detailsFormat == "html";
+    if (status < 200 || status >= 300 || response.length() == 0) {
+      LOG_INF("PCAT", "item details fetch failed: HTTP %d", status);
+    } else if (html || details.detailsFormat.empty() || details.detailsFormat == "text") {
+      spec.description.assign(response.c_str(), response.length());
+      spec.descriptionHtml = html;
+    } else {
+      LOG_INF("PCAT", "unsupported item details format: %s", details.detailsFormat.c_str());
+    }
+  }
+  if (spec.description.empty()) spec.description = std::move(details.description);
+
+  const auto addFact = [&spec](const std::string& fact) {
+    if (fact.empty()) return;
+    if (!spec.metadata.empty()) spec.metadata += " \xC2\xB7 ";
+    spec.metadata += fact;
+  };
+  if (!item.version.empty()) addFact(item.version);
+  addFact(item.status);
+
+  const bool updateAvailable = item.status == tr(STR_UPDATE);
+  spec.actionLabel = updateAvailable ? tr(STR_UPDATE) : tr(STR_DOWNLOAD);
+
+  auto detailsActivity = makeUniqueNoThrow<DetailsActivity>(renderer, mappedInput, std::move(spec));
+  if (!detailsActivity) {
+    LOG_ERR("PCAT", "OOM: item details");
+    state = State::BROWSING;
+    requestUpdate();
+    return;
+  }
+  session.reset();
+  state = State::BROWSING;
+  requestUpdate();
+  startActivityForResult(std::move(detailsActivity), [this, itemIndex](const ActivityResult& result) {
+    RenderLock lock;
+    if (result.isCancelled || itemIndex < 0 || itemIndex >= static_cast<int>(itemCount)) return;
+    downloadItem(itemIndex);
+  });
 }
 
 void PluginCatalogActivity::drawFooter() {

@@ -158,3 +158,5 @@ add_subdirectory(plugin_http_policy)
 add_subdirectory(plugin_bundle)
 
 add_subdirectory(plugin_picker_layout)
+
+add_subdirectory(plugin_details)

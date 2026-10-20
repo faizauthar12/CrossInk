@@ -16,6 +16,7 @@
 #include "activities/home/HomeActivity.h"
 #include "activities/network/NetworkModeSelectionActivity.h"
 #include "activities/plugins/PluginCatalogActivity.h"
+#include "activities/util/DetailsActivity.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "network/CrossPointWebServer.h"
@@ -64,6 +65,51 @@ struct PluginCatalogSmokeTest {
     static const uint8_t originalTheme = SETTINGS.uiTheme;
     static int phase = -4;
     static int homePass = 0;
+    static int pendingRelease = -1;
+    if (pendingRelease >= 0) {
+      mappedInputManager.simulatorInjectRelease(static_cast<MappedInputManager::Button>(pendingRelease));
+      pendingRelease = -1;
+      return;
+    }
+    static bool detailsCancelled = false, reopenDetails = false, detailsClosing = false, detailsReady = false;
+    if (activityManager.isCurrentActivityNamed("Details")) {
+      if (detailsClosing) return;
+      auto& details = *static_cast<DetailsActivity*>(activityManager.simulatorCurrentActivity());
+      if (!detailsReady) {
+        require(details.simulatorText().find("Café & catalog") != std::string::npos, "HTML details were not decoded");
+        require(details.simulatorText().find("<p>") == std::string::npos, "HTML markup visible");
+        require(details.simulatorPage() == 0 && details.simulatorFirstLine() == "Fixture",
+                "Details did not start at the title");
+        const size_t firstEnd = details.simulatorPageEnd();
+        require(firstEnd < details.simulatorText().size(), "Long details did not paginate");
+        capture(details, detailsCancelled ? "catalog-details-reopened" : "catalog-details");
+        mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Down);
+        details.loop();
+        mappedInputManager.simulatorClearInputFrame();
+        require(details.simulatorPageEnd() > firstEnd, "Details paging did not advance");
+        detailsReady = true;
+        return;
+      }
+      mappedInputManager.simulatorInjectRelease(detailsCancelled ? MappedInputManager::Button::Confirm
+                                                                 : MappedInputManager::Button::Back);
+      details.loop();
+      mappedInputManager.simulatorClearInputFrame();
+      reopenDetails = !detailsCancelled;
+      detailsCancelled = true;
+      detailsClosing = true;
+      return;
+    }
+    detailsClosing = false;
+    detailsReady = false;
+    if (reopenDetails && activityManager.isCurrentActivityNamed("PluginCatalog")) {
+      require(!Storage.exists("/Books/Fixture.txt"), "Cancelling details downloaded a book");
+      auto& catalog = *static_cast<PluginCatalogActivity*>(activityManager.simulatorCurrentActivity());
+      RenderLock lock;
+      catalog.activateItem(0);
+      reopenDetails = false;
+      return;
+    }
+
     if (phase == -8) {
       {
         RenderLock lock;
@@ -128,6 +174,7 @@ struct PluginCatalogSmokeTest {
         }
         capture(menu, "file-transfer");
         mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Confirm);
+        pendingRelease = static_cast<int>(MappedInputManager::Button::Confirm);
         menu.loop();
         mappedInputManager.simulatorClearInputFrame();
         phase = -5;
@@ -167,6 +214,7 @@ struct PluginCatalogSmokeTest {
       require(activityManager.isCurrentActivityNamed("OpdsServerList"), "File Transfer OPDS action failed");
       capture(*activityManager.simulatorCurrentActivity(), "opds-servers");
       mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Back);
+      pendingRelease = static_cast<int>(MappedInputManager::Button::Back);
       activityManager.simulatorCurrentActivity()->loop();
       mappedInputManager.simulatorClearInputFrame();
       phase = phase == -5 ? -9 : -11;

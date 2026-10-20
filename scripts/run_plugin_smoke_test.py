@@ -55,8 +55,10 @@ def main():
                     assert self.headers.get('Authorization') == 'Bearer signed-in'
                     data = json.dumps([{'title': 'Signed-in library', 'url': url + '/book'}]).encode()
                 elif self.path == '/json':
-                    data = json.dumps([{'title': title, 'url': url + '/book'} for title in
+                    data = json.dumps([{'title': title, 'url': url + '/book', 'details': {'url': url + '/details', 'format': 'html'}} for title in
                                        ['Fixture', 'Second book', 'Café stories']] + [{'title': 'Unsupported', 'requires': 'catalog.missing'}]).encode()
+                elif self.path == '/details':
+                    data = ('<h1>Fixture details</h1><p>Café &amp; catalog</p>' + '<p>Long description for paging.</p>' * 60).encode()
                 elif self.path == '/lists':
                     data = json.dumps({'lists': [{'title': 'Books', 'url': url + '/json'}]}).encode()
                 elif self.path == '/xml':
@@ -97,7 +99,7 @@ def main():
         threading.Thread(target=fixture.serve_forever, daemon=True).start()
         origin = f'https://localhost:{fixture.server_port}'
         write('/plugins/json/device.json', {'title': 'Library catalog', 'browse': {'url': origin + '/json',
-              'fields': {'title': 'title', 'url': 'url'}, 'lists_url': origin + '/lists',
+              'fields': {'title': 'title', 'url': 'url', 'details_url': 'details.url', 'details_format': 'details.format'}, 'lists_url': origin + '/lists',
               'compatibility': {'requires': 'requires'}},
               'download': {'url': '{url}', 'filename': '{title}.txt', 'dest_dir': '/Books'}})
         write('/plugins/auth/device.json', {'title': 'Sign-in catalog',
