@@ -21,14 +21,14 @@ constexpr size_t MAX_TOKEN_FILE_SIZE = 2 * 1024;
 // Resolves the caller's reused TLS session (or `tmp`) into a configured,
 // connected client, or nullptr if begin() failed.
 freeink::SecureHttpClient* openClient(freeink::SecureHttpClient* session, freeink::SecureHttpClient& tmp,
-                                      const std::string& url, const pluginhttp::Headers& headers) {
+                                      const std::string& url, const pluginhttp::Headers& headers, uint32_t timeoutMs) {
   freeink::SecureHttpClient& http = session ? *session : tmp;
   if (!pluginhttp::validHeaders(headers)) return nullptr;
   http.setUserAgent("CrossInk");
   // Same trust posture as every other SecureNet consumer: no CA bundle ships
   // with the transport, so verification is skipped; traffic stays encrypted.
   http.setInsecure();
-  http.setTimeout(30000);
+  http.setTimeout(timeoutMs);
   if (!http.begin(url)) return nullptr;
   for (const auto& h : headers) http.addHeader(h.first, h.second);
   return &http;
@@ -203,7 +203,7 @@ void loadConfigFile(const std::string& file, Headers& out) {
 
 int request(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
             const std::string& body, const Headers& headers, String& out, const size_t maxResponse,
-            Headers* responseHeaders, const std::function<bool()>& shouldAbort) {
+            Headers* responseHeaders, const std::function<bool()>& shouldAbort, uint32_t timeoutMs) {
   if (!validRequest(url, method) || !validHeaders(headers)) {
     LOG_ERR("PHTP", "Invalid plugin request");
     return -1;
@@ -215,7 +215,7 @@ int request(freeink::SecureHttpClient* session, const std::string& url, const st
   };
   WifiPowerSaveGuard psGuard;
   freeink::SecureHttpClient tmp;
-  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, url, headers);
+  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, url, headers, timeoutMs);
   if (!httpPtr) return -1;
   freeink::SecureHttpClient& http = *httpPtr;
 
@@ -252,7 +252,7 @@ int request(freeink::SecureHttpClient* session, const std::string& url, const st
 
 int requestToFile(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
                   const std::string& body, const Headers& headers, const char* destPath, const size_t maxResponse,
-                  const std::function<bool()>& shouldAbort) {
+                  const std::function<bool()>& shouldAbort, uint32_t timeoutMs) {
   if (!validRequest(url, method) || !validHeaders(headers)) {
     LOG_ERR("PHTP", "Invalid plugin request");
     return -1;
@@ -264,7 +264,7 @@ int requestToFile(freeink::SecureHttpClient* session, const std::string& url, co
   };
   WifiPowerSaveGuard psGuard;
   freeink::SecureHttpClient tmp;
-  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, url, headers);
+  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, url, headers, timeoutMs);
   if (!httpPtr) return -1;
   freeink::SecureHttpClient& http = *httpPtr;
 
@@ -303,10 +303,11 @@ int requestToFile(freeink::SecureHttpClient* session, const std::string& url, co
 
 bool mintPasswordToken(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
                        const std::string& body, const Headers& headers, const std::string& tokenPath,
-                       std::string& outToken, const std::function<bool()>& shouldAbort) {
+                       std::string& outToken, const std::function<bool()>& shouldAbort, uint32_t timeoutMs) {
   String response;
   constexpr size_t MAX_AUTH_RESPONSE = 8 * 1024;
-  const int status = request(session, url, method, body, headers, response, MAX_AUTH_RESPONSE, nullptr, shouldAbort);
+  const int status =
+      request(session, url, method, body, headers, response, MAX_AUTH_RESPONSE, nullptr, shouldAbort, timeoutMs);
   if (status < 200 || status >= 300) return false;
   JsonDocument doc;
   if (deserializeJson(doc, response) != DeserializationError::Ok) return false;

@@ -40,6 +40,7 @@
 #include "util/BookCacheUtils.h"
 #include "util/FirmwareIdentity.h"
 #include "util/PluginBundle.h"
+#include "util/PluginEvents.h"
 #include "util/PluginHttp.h"
 #include "util/PluginLocations.h"
 #include "util/PluginPickerLayout.h"
@@ -503,10 +504,31 @@ void PluginCatalogActivity::downloadItem(int index) {
 }
 
 void PluginCatalogActivity::enterPluginPicker() {
+  pluginevents::refreshSubscriptions();
   Storage.remove(BROWSE_TMP_PATH);
   pendingWork = Work::None;
   closeRouting();
   installedPlugins = discoverPlugins();
+  // Disclose which device events each plugin receives (and so what reading
+  // activity it can send off the device). Events precede the optional summary.
+  static constexpr StrId EVENT_LABELS[] = {StrId::STR_EVENT_BOOK_OPEN, StrId::STR_EVENT_BOOK_CLOSE,
+                                           StrId::STR_EVENT_READING_SESSION, StrId::STR_EVENT_DOWNLOAD,
+                                           StrId::STR_EVENT_SLEEP};
+  static_assert(sizeof(EVENT_LABELS) / sizeof(EVENT_LABELS[0]) == static_cast<size_t>(pluginevents::Event::COUNT));
+  for (auto& plugin : installedPlugins) {
+    const uint8_t mask = pluginevents::subscriptionMask(plugin.name.c_str());
+    if (mask == 0) continue;
+    std::string events;
+    for (size_t i = 0; i < std::size(EVENT_LABELS); i++) {
+      if (!(mask & (1u << i))) continue;
+      if (!events.empty()) events += ", ";
+      events += I18N.get(EVENT_LABELS[i]);
+    }
+    char line[192];
+    snprintf(line, sizeof(line), tr(STR_PLUGIN_RECEIVES_EVENTS), events.c_str());
+    plugin.description = plugin.description.empty() ? line : std::string(line) + ". " + plugin.description;
+  }
+
   pluginHubAvailable = PluginHubInstallActivity::isAvailable();
   showPluginHubInstallRow = !pluginHubAvailable && !SETTINGS.pluginHubPromptHidden;
   manifestPath.clear();
@@ -1167,6 +1189,9 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& it
     }
   }
 
+  const pluginevents::Var vars[] = {
+      {"path", dest.c_str()}, {"title", item.title.c_str()}, {"plugin", pickerReturnName.c_str()}};
+  pluginevents::emit(pluginevents::Event::BookDownloaded, vars, 3);
   return HttpDownloader::OK;
 }
 

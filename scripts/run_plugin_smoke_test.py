@@ -32,12 +32,19 @@ def main():
             file = sd / path.lstrip('/')
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(json.dumps(value) if isinstance(value, (dict, list)) else value)
+        event_attempts = []
         class Fixture(http.server.BaseHTTPRequestHandler):
             protocol_version = 'HTTP/1.1'
             def log_message(self, *args):
                 pass
             def do_POST(self):
                 body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                if self.path == '/events':
+                    event_attempts.append(body)
+                    self.send_response(503 if len(event_attempts) == 1 else 200)
+                    self.send_header('Content-Length', '0')
+                    self.end_headers()
+                    return
                 if self.path == '/auth':
                     value = {'user_code': 'TEST-123', 'verification_uri': 'https://example.invalid/activate',
                              'device_code': 'fixture-code', 'interval': 3, 'expires_in': 60}
@@ -98,6 +105,7 @@ def main():
         fixture.socket = context.wrap_socket(fixture.socket, server_side=True)
         threading.Thread(target=fixture.serve_forever, daemon=True).start()
         origin = f'https://localhost:{fixture.server_port}'
+        write('/plugins/events/device.json', {'title': 'Event fixture', 'events': {name: {'connect': name == 'reader.exit', 'request': {'url': origin + '/events', 'body': '{event.id}:{event.book}:{event.ts}'}} for name in ['reader.open', 'reader.exit', 'reader.session', 'book.downloaded', 'sleep.enter']}})
         write('/plugins/json/device.json', {'title': 'Library catalog', 'browse': {'url': origin + '/json',
               'fields': {'title': 'title', 'url': 'url', 'details_url': 'details.url', 'details_format': 'details.format'}, 'lists_url': origin + '/lists',
               'compatibility': {'requires': 'requires'}},
@@ -153,6 +161,7 @@ def main():
                     except (urllib.error.URLError, ConnectionError):
                         if time.monotonic() >= deadline: raise TimeoutError(log.read_text()[-5000:])
                         time.sleep(.1)
+                assert len(event_attempts) >= 6 and event_attempts[0] == event_attempts[1], event_attempts
                 assert any(p['name'] == 'json' for p in json.loads(plugins))
                 script, _ = request('/plugin?name=json&file=plugin.js'); assert b'registerPlugin' in script
                 host, _ = request('/plugin-host.js'); assert b'registerPlugin' in host

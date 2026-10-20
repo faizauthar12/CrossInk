@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
@@ -23,6 +22,7 @@
 #include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
+#include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "activities/Activity.h"
@@ -42,6 +42,7 @@ struct ToastRect {
 };
 
 class EpubReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
   friend struct EpubReaderCompletionSmokeTest;
   friend struct ScreenCalibrationSmokeTest;
@@ -544,6 +545,11 @@ class EpubReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!saveReadingProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   void loop() override;
   void render(RenderLock&& lock) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;

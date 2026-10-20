@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include "PluginEvents.h"
 #include "network/DownloadFileSwap.h"
 #include "network/ProtectedPaths.h"
 
@@ -131,6 +132,7 @@ bool publish(const std::string& destination) {
     return false;
   }
   if (!recoverPending()) LOG_ERR("PLUG", "Bundle installed; backup cleanup deferred");
+  pluginevents::refreshSubscriptions();
   return true;
 }
 void discard(const std::string& destination) { removeTree(stagingPath(destination)); }

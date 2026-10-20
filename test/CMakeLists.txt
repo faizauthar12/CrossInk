@@ -160,3 +160,5 @@ add_subdirectory(plugin_bundle)
 add_subdirectory(plugin_picker_layout)
 
 add_subdirectory(plugin_details)
+
+add_subdirectory(reader_session)

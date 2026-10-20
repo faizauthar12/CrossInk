@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Txt.h>
 
 #include <optional>
@@ -7,6 +6,7 @@
 
 #include "BookLoadingFeedback.h"
 #include "CrossPointSettings.h"
+#include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "activities/Activity.h"
@@ -16,6 +16,7 @@
 #endif
 
 class TxtReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
   friend struct StatusBarFeatureSmokeTest;
   friend struct ScreenCalibrationSmokeTest;
@@ -112,6 +113,11 @@ class TxtReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!flushQueuedProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   void loop() override;
   void render(RenderLock&&) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;

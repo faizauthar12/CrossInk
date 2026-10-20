@@ -26,6 +26,7 @@
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "html/RunnerPageHtml.generated.h"
 #include "util/BookCacheUtils.h"
+#include "util/PluginEvents.h"
 #include "util/PluginHttp.h"
 #include "util/PluginLocations.h"
 #include "util/TaskWatchdog.h"
@@ -434,7 +435,11 @@ void CrossPointWebServer::handleFetch() {
   }
   if (ok2xx && complete) {
     clearBookCache(dest);
-    if (library::fileTypeFor(dest)) library::invalidateLibraryIndex();
+    if (library::fileTypeFor(dest)) {
+      library::invalidateLibraryIndex();
+      const pluginevents::Var vars[] = {{"path", dest.c_str()}, {"title", ""}, {"plugin", req["plugin"] | ""}};
+      pluginevents::emit(pluginevents::Event::BookDownloaded, vars, 3);
+    }
     sdFontSystem.markRegistryDirtyForPath(dest.c_str());
     ImageFolderIndex::invalidateForPath(dest.c_str());
   }
@@ -533,7 +538,12 @@ void CrossPointWebServer::handlePluginFsUpload() {
         fail(500, "sd write failed");
       } else {
         clearBookCache(st.path);
-        if (library::fileTypeFor(st.path)) library::invalidateLibraryIndex();
+        if (library::fileTypeFor(st.path)) {
+          library::invalidateLibraryIndex();
+          const std::string plugin = server->arg("plugin").c_str();
+          const pluginevents::Var vars[] = {{"path", st.path.c_str()}, {"title", ""}, {"plugin", plugin.c_str()}};
+          pluginevents::emit(pluginevents::Event::BookDownloaded, vars, 3);
+        }
         sdFontSystem.markRegistryDirtyForPath(st.path.c_str());
         ImageFolderIndex::invalidateForPath(st.path.c_str());
       }

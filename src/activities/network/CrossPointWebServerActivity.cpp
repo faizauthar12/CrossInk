@@ -24,6 +24,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/PluginEvents.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -106,6 +107,7 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  pluginevents::refreshSubscriptions();
   library::invalidateLibraryIndex();
   Activity::onExit();
 

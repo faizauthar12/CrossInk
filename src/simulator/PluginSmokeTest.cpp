@@ -20,6 +20,7 @@
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "network/CrossPointWebServer.h"
+#include "util/PluginEvents.h"
 #include "util/PluginHttp.h"
 
 extern ActivityManager activityManager;
@@ -336,6 +337,34 @@ struct PluginCatalogSmokeTest {
       ++phase;
       return;
     }
+    if (phase == 30) {
+      if (!activityManager.isCurrentActivityNamed("TxtReader")) return;
+      std::string queued;
+      {
+        RenderLock lock;
+        if (!Storage.readFileToString("TEST", "/plugins/events/events.jsonl", 8192, queued) ||
+            queued.find("reader.open") == std::string::npos)
+          return;
+      }
+      WiFi.mode(WIFI_STA);
+      WiFi.begin("Plugin fixture", "");
+      activityManager.goToPlugins();
+      phase = 31;
+      return;
+    }
+    if (phase == 31) {
+      if (!activityManager.isCurrentActivityNamed("PluginCatalog")) return;
+      std::string queued;
+      {
+        RenderLock lock;
+        require(Storage.readFileToString("TEST", "/plugins/events/events.jsonl", 8192, queued) &&
+                    queued.find("reader.exit") != std::string::npos,
+                "TXT exit event missing");
+      }
+      select(*static_cast<PluginCatalogActivity*>(activityManager.simulatorCurrentActivity()), "xml");
+      phase = 4;
+      return;
+    }
     if (!activityManager.isCurrentActivityNamed("PluginCatalog")) return;
     auto& activity = *static_cast<PluginCatalogActivity*>(activityManager.simulatorCurrentActivity());
     CatalogActivity::State state;
@@ -346,6 +375,49 @@ struct PluginCatalogSmokeTest {
     require(state != CatalogActivity::State::ERROR, "catalog entered error state");
     switch (phase) {
       case 1: {
+        {
+          RenderLock lock;
+          pluginevents::refreshSubscriptions();
+          require(pluginevents::subscriptionMask("events") == 31, "event subscription mask");
+          const pluginevents::Var vars[] = {{"book", "/Books/Fixture.txt"}, {"percent", "25"}};
+          for (int e = 0; e < 5; ++e) pluginevents::emit(static_cast<pluginevents::Event>(e), vars, 2);
+          std::string queued, after;
+          const std::string outbox = "/plugins/events/events.jsonl";
+          require(Storage.readFileToString("TEST", outbox, 8192, queued), "event outbox missing");
+          SETTINGS.pluginsEnabled = 0;
+          pluginevents::emit(pluginevents::Event::ReaderOpen, vars, 2);
+          pluginevents::drain(nullptr);
+          require(Storage.readFileToString("TEST", outbox, 8192, after) && after == queued,
+                  "disabled events changed queue");
+          SETTINGS.pluginsEnabled = 1;
+          pluginevents::drain(nullptr, 1);  // First response fails: preserve the whole queue.
+          require(Storage.readFileToString("TEST", outbox, 8192, after) && after == queued, "failed event lost queue");
+          pluginevents::drain(nullptr, 1);
+          require(Storage.readFileToString("TEST", outbox, 8192, after) && after.size() < queued.size(),
+                  "event budget did not retain tail");
+          require(Storage.rename(outbox.c_str(), (outbox + ".old").c_str()), "outbox recovery setup");
+          pluginevents::drain(nullptr, 4);
+          require(!Storage.exists(outbox.c_str()) && !Storage.exists((outbox + ".old").c_str()),
+                  "event recovery/drain incomplete");
+          const std::string longPath = "/Books/" + std::string(230, '"');
+          const pluginevents::Var sessionVars[] = {
+              {"book", longPath.c_str()},   {"document", "0123456789abcdef0123456789abcdef"},
+              {"start_time", "1790000000"}, {"end_time", "1790000010"},
+              {"duration_seconds", "10"},   {"start_progress_bp", "1000"},
+              {"end_progress_bp", "2000"},  {"progress_scale", "10000"}};
+          pluginevents::emit(pluginevents::Event::ReaderSession, sessionVars, 8);
+          require(Storage.readFileToString("TEST", outbox, 8192, after) && after.size() > 512,
+                  "long-path session dropped");
+          for (int i = 0; i < 5; ++i) pluginevents::emit(pluginevents::Event::ReaderOpen, vars, 2);
+          pluginevents::emit(pluginevents::Event::ReaderExit, vars, 2);
+          pluginevents::prepareSleep("/Books/Fixture.txt", 25, true);
+          require(Storage.readFileToString("TEST", outbox, 8192, after) &&
+                      after.find("sleep.enter") == std::string::npos &&
+                      after.find("reader.open") != std::string::npos && after.find("reader.exit") == std::string::npos,
+                  "sleep event was blocked by backlog");
+          pluginevents::drain(nullptr, 8);
+        }
+
         capture(activity, "plugins");
         {
           RenderLock lock;
@@ -428,8 +500,8 @@ struct PluginCatalogSmokeTest {
         require(Storage.exists("/Books/Fixture.txt"), "download missing");
         require(library::libraryIndexNeedsRefresh(), "plugin download did not refresh Library");
         capture(activity, "download-complete");
-        select(activity, "xml");
-        ++phase;
+        activityManager.goToReader("/Books/Fixture.txt");
+        phase = 30;
         break;
       }
       case 4: {

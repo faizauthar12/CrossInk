@@ -7,7 +7,7 @@ No JavaScript engine runs on the reader.
 
 This first integration supports browser interfaces, browser action jobs,
 JSON/XML catalogs, authentication, book downloads, and bundle installation.
-Firmware event subscriptions and encrypted, expiring loans are not supported.
+Firmware events are supported. Encrypted, expiring loans are not yet supported.
 `/api/crypto` and `/api/book-key` return an explicit unsupported error. Plugins
 that require those features need a later integration.
 
@@ -172,3 +172,23 @@ actions should tolerate retries. Jobs are not persisted across firmware restart.
 Catalog requests support `{firmware_family}`, `{firmware_version}`, `{plugin_api}`, and `{plugin_capabilities}`. This integration advertises the `crosspoint` catalog family, the CrossInk version, API 1, and `catalog.lists`, `catalog.notices`, `catalog.bundle_install`, `catalog.version_tracking`, and `catalog.compatibility`. It also advertises `catalog.item_details`: catalogs may map `description`, `detail_author`, `repository`, `details_url`, and `details_format` in `browse.fields`. Version-tracked catalogs default to `description`, `author`, `repository`, and `details.url`/`details.format`. Text or HTML details are limited to 8 KiB; HTML is displayed as readable text with paragraph breaks. Details page before downloading, and Back cancels without downloading. Only the current page is wrapped in memory.
 
 `browse.compatibility` can map `firmware_family`, `plugin_api_min`, and `requires` to JSON row fields. Missing restrictions allow a row; supplied family/API/capability restrictions must match. Filtering keeps the server's original pagination lookahead. Completed book downloads through catalogs or browser plugin APIs mark the Library for refresh. Bundles updating an existing plugin reuse its original root and preserve its configuration.
+
+## Firmware events
+
+A plugin's `device.json` can subscribe through an `events` object to `reader.open`,
+`reader.exit`, `reader.session`, `book.downloaded`, and `sleep.enter`. The Plugins
+list displays the subscribed events. Disabling Plugins stops collection and delivery.
+Handlers use `request` or `download` objects with `{event.*}`, `{cfg.*}`, `{meta.*}`,
+and `{token}` substitutions. Downloads use the same protected-path checks as catalog downloads.
+
+Events are queued in each plugin's `events.jsonl` (4 KiB plus one bounded line).
+Ordinary delivery is ordered and at least once: services should deduplicate `{event.id}`.
+Failed requests retain the queue; successful delivery publishes the remaining tail
+through a recoverable file swap. An overfull outbox drops old events to bound SD use.
+Normal online delivery is throttled to one event every 30 seconds. Sleep subscriptions
+imply a saved-network connection attempt, limited to 10 seconds, and a separate 10-second delivery budget for the newest sleep event of each subscribed plugin (up to eight plugins), before the sleep image is drawn. The same deadline also permits one queued non-sleep `connect: true` handler per plugin. Other events remain queued. Low-battery sleep leaves events queued. The delivery deadline is a soft limit on hardware: Arduino DNS resolution can block outside the TCP timeout.
+
+Reader sessions count completed forward-page reading intervals (2–1800 seconds),
+emit after at least 10 active seconds, and exclude idle exit time. EPUB, TXT and XTC
+report progress on a 0–10000 scale. Timestamps use a persisted device clock floor;
+RTC adoption and network time synchronization prevent ordinary clock rollback.

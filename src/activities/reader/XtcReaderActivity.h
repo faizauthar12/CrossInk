@@ -6,7 +6,6 @@
  */
 
 #pragma once
-
 #include <Xtc.h>
 
 #include <memory>
@@ -18,6 +17,7 @@
 #include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
+#include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "activities/Activity.h"
@@ -25,6 +25,7 @@
 #include "sync/SyncPending.h"
 
 class XtcReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
   friend struct StatusBarFeatureSmokeTest;
 #endif
@@ -125,6 +126,11 @@ class XtcReaderActivity final : public Activity {
         openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!flushQueuedProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   void loop() override;
   void render(RenderLock&&) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;

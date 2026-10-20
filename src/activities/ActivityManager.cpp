@@ -1491,3 +1491,9 @@ void RenderLock::unlock() {
  * @note Must not be called from ISR context — xSemaphoreGetMutexHolder is not ISR-safe.
  */
 bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
+
+void ActivityManager::preparePluginSleep() {
+  RenderLock lock;
+  for (auto& activity : stackActivities) activity->prepareForSleep();
+  if (currentActivity) currentActivity->prepareForSleep();
+}

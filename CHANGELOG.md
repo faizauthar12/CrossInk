@@ -41,6 +41,7 @@
 
 - Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Enable Plugins in Settings → System, then open Plugins from Home. Download the optional Plugin Hub to discover, install, and update compatible plugins.
 - Plugin catalogs can show paged descriptions before installing or downloading.
+- Plugins can receive reading, download, and sleep events, with queued delivery and visible event subscriptions.
 
 ### Fixed
 

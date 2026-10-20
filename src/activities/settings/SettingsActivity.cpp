@@ -28,6 +28,7 @@
 #include "FilenameFontSystem.h"
 #include "FontSelectionActivity.h"
 #include "HyphenationManagerActivity.h"
+#include "util/PluginEvents.h"
 #if CROSSINK_SCALABLE_FONTS
 #include "TtfRenderOptionsActivity.h"
 #endif
@@ -1540,6 +1541,7 @@ void SettingsActivity::toggleCurrentSetting() {
         optionPopup.show(StrId::STR_PLUGINS, OPTIONS, 3, SETTINGS.pluginsEnabled ? 0 : 1, [this](const int idx) {
           if (idx == 2) return;
           SETTINGS.pluginsEnabled = idx == 0 ? 1 : 0;
+          pluginevents::refreshSubscriptions();
           if (SETTINGS.pluginsEnabled) SETTINGS.pluginHubPromptHidden = 0;
           SETTINGS.saveToFile();
           rebuildSettingsLists();

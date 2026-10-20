@@ -81,17 +81,19 @@ bool validHeaders(const Headers& headers);
 // duplicates kept. shouldAbort (optional) is polled in every wait loop.
 int request(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
             const std::string& body, const Headers& headers, String& out, size_t maxResponse,
-            Headers* responseHeaders = nullptr, const std::function<bool()>& shouldAbort = nullptr);
+            Headers* responseHeaders = nullptr, const std::function<bool()>& shouldAbort = nullptr,
+            uint32_t timeoutMs = 30000);
 
 // Same request, body streamed to a file on SD instead of DRAM.
 int requestToFile(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
                   const std::string& body, const Headers& headers, const char* destPath, size_t maxResponse,
-                  const std::function<bool()>& shouldAbort = nullptr);
+                  const std::function<bool()>& shouldAbort = nullptr, uint32_t timeoutMs = 30000);
 
 // Password-grant token mint: runs the (already-substituted) auth request and
 // extracts the token at `tokenPath` from a 2xx JSON response.
 bool mintPasswordToken(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
                        const std::string& body, const Headers& headers, const std::string& tokenPath,
-                       std::string& outToken, const std::function<bool()>& shouldAbort = nullptr);
+                       std::string& outToken, const std::function<bool()>& shouldAbort = nullptr,
+                       uint32_t timeoutMs = 30000);
 
 }  // namespace pluginhttp

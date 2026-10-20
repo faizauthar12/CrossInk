@@ -21,6 +21,9 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <SPI.h>
+#include <TrustedTime.h>
+
+#include "util/PluginEvents.h"
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
 #endif
@@ -1129,6 +1132,14 @@ void enterDeepSleep(bool fromTimeout) {
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
+  activityManager.preparePluginSleep();
+  {
+    RenderLock lock;
+    const std::string book = activityManager.getCurrentBookPath();
+    pluginevents::prepareSleep(book.c_str(), activityManager.getScreenshotInfo().progressPercent,
+                               powerManager.getBatteryPercentage() >= 20);
+  }
+  trustedtime::note();
   activityManager.goToSleep(fromTimeout);
   // Reader exit may already have saved this state. Save after the sleep screen
   // appears, skipping an unchanged snapshot while still retrying failed saves.
@@ -1326,6 +1337,20 @@ void setup() {
 
   halTiltSensor.begin();
   halClock.begin();
+#ifndef SIMULATOR
+  // Convert the RTC's UTC calendar without depending on the display timezone.
+  uint16_t rtcYear;
+  uint8_t rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond;
+  if (halClock.getReadingDateTime(rtcYear, rtcMonth, rtcDay, rtcHour, rtcMinute, rtcSecond)) {
+    int year = rtcYear - (rtcMonth <= 2);
+    const int era = year / 400;
+    const unsigned yoe = year - era * 400;
+    const unsigned doy = (153 * (rtcMonth + (rtcMonth > 2 ? -3 : 9)) + 2) / 5 + rtcDay - 1;
+    const int64_t days = era * 146097LL + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+    trustedtime::adopt(days * 86400 + rtcHour * 3600 + rtcMinute * 60 + rtcSecond);
+  }
+#endif
+  trustedtime::init();
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
@@ -1378,6 +1403,7 @@ void setup() {
 
   if (!PluginBundle::recoverPending()) LOG_ERR("PLUG", "Plugin install recovery pending");
   SETTINGS.loadFromFile();
+  pluginevents::refreshSubscriptions();
   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
   APP_STATE.loadFromFile();
 #ifdef SIMULATOR
@@ -1944,6 +1970,10 @@ void loop() {
     }
   }
 
+  if (!activityManager.isReaderActivity()) {
+    RenderLock lock;
+    pluginevents::pollOnline();
+  }
   const unsigned long activityStartTime = millis();
   activityManager.loop();
 #if CROSSINK_APP_CAP_TOUCH
