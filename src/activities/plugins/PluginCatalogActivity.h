@@ -124,10 +124,9 @@ class PluginCatalogActivity final : public CatalogActivity {
 
   struct Item {
     std::string title, author, id, url;
-    std::string version;   // catalog version (tracksInstalls only)
-    std::string status;    // computed install/update badge shown in the row value
-    int sourceIndex = -1;  // Original JSON row, preserved across compatibility filtering.
-    bool isDir = false;    // a container/folder (navigable), not a downloadable file
+    std::string version;  // catalog version (tracksInstalls only)
+    std::string status;   // computed install/update badge shown in the row value
+    bool isDir = false;   // a container/folder (navigable), not a downloadable file
     // Bundle download only: base URL + relative file paths for this item.
     std::string base;
     std::vector<std::string> files;

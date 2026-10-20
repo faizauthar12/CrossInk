@@ -505,6 +505,26 @@ struct PluginCatalogSmokeTest {
         {
           RenderLock lock;
           require(activity.itemCount == 3, "JSON row count");
+          auto& target = activity.items[0];
+          const auto savedTitle = target.title;
+          const auto savedId = target.id;
+          PluginCatalogActivity::ItemDetails details;
+          target.title = "renamed locally";
+          require(activity.loadItemDetails(0, details) && details.description.find("selected") == 0,
+                  "Details did not match the authoritative ID");
+          target.title = savedTitle;
+          target.id.clear();
+          details = {};
+          require(activity.loadItemDetails(0, details) && details.description.find("selected") == 0,
+                  "Details title/version fallback selected a filtered row");
+          target.id = "missing-id";
+          details = {};
+          require(!activity.loadItemDetails(0, details), "Missing ID incorrectly fell back to title");
+          target.id = savedId;
+          details = {};
+          require(activity.loadItemDetails(2, details) && details.description.find("selected") == 0,
+                  "Discarded details exhausted the streaming budget");
+          require(!activity.loadItemDetails(-1, details), "Invalid detail index accepted");
         }
         capture(activity, "catalog");
         {

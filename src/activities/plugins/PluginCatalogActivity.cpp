@@ -898,7 +898,6 @@ bool PluginCatalogActivity::parseBrowseResponse() {
     item.id = std::move(row.field[JsonListParser::F_ID]);
     item.url = std::move(row.field[JsonListParser::F_URL]);
     item.version = std::move(row.field[JsonListParser::F_VERSION]);
-    item.sourceIndex = thisRow;
     item.base = std::move(row.field[JsonListParser::F_BASE]);
     item.files = std::move(row.files);
     items[itemCount++] = std::move(item);
@@ -1380,7 +1379,13 @@ bool PluginCatalogActivity::loadItemDetails(const int itemIndex, ItemDetails& de
   if (itemIndex < 0 || itemIndex >= static_cast<int>(itemCount)) return false;
   const Item& target = items[itemIndex];
   const std::string unused;
-  // Read only the selected original row; unrelated descriptions consume no budget.
+  // Match upstream: catalog IDs are authoritative, with title/version as fallback.
+  const auto isTarget = [&target](const JsonListParser::Row& row) {
+    if (!target.id.empty()) return row.field[JsonListParser::F_ID] == target.id;
+    return row.field[JsonListParser::F_TITLE] == target.title &&
+           (target.version.empty() || row.field[JsonListParser::F_VERSION] == target.version);
+  };
+  // Every pass keys rows on title/id/version and reads three more fields.
   const auto streamFor = [&](auto& capture, const std::string* author, const std::string* extraUrl,
                              const std::string* extraBase) {
     const std::string* fields[JsonListParser::F_COUNT] = {};
@@ -1396,16 +1401,16 @@ bool PluginCatalogActivity::loadItemDetails(const int itemIndex, ItemDetails& de
           (*static_cast<std::remove_reference_t<decltype(capture)>*>(context))(row);
         },
         &capture);
-    if (parser) {
-      parser->selectRow(target.sourceIndex);
-      parser->setCaptureBudget(8 * 1024);
-    }
+    // Only one row is retained; discarded rows must not exhaust a lifetime
+    // capture budget. Each of the six fields is bounded by JsonSax's 2 KiB
+    // token limit. Account for aliases that capture one input value six times.
+    if (parser) parser->setCaptureBudget(MAX_BROWSE_RESPONSE * JsonListParser::F_COUNT);
     return streamBrowseFile(parser.get());
   };
 
   bool found = false;
   auto captureMetadata = [&](JsonListParser::Row& row) {
-    if (found) return;
+    if (found || !isTarget(row)) return;
     details.author = std::move(row.field[JsonListParser::F_AUTHOR]);
     details.description = std::move(row.field[DETAIL_DESCRIPTION]);
     details.repository = std::move(row.field[DETAIL_REPOSITORY]);
@@ -1418,7 +1423,7 @@ bool PluginCatalogActivity::loadItemDetails(const int itemIndex, ItemDetails& de
 
   bool pageFound = false;
   auto capturePage = [&](JsonListParser::Row& row) {
-    if (pageFound) return;
+    if (pageFound || !isTarget(row)) return;
     details.detailsUrl = std::move(row.field[DETAIL_PAGE_URL]);
     details.detailsFormat = std::move(row.field[DETAIL_PAGE_FORMAT]);
     pageFound = true;

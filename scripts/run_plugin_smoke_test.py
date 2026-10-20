@@ -89,8 +89,18 @@ def main():
                     assert self.headers.get('Authorization') == 'Bearer signed-in'
                     data = json.dumps([{'title': 'Signed-in library', 'url': url + '/book'}]).encode()
                 elif self.path == '/json':
-                    data = json.dumps([{'title': title, 'url': url + '/book', 'details': {'url': url + '/details', 'format': 'html'}} for title in
-                                       ['Fixture', 'Second book', 'Café stories']] + [{'title': 'Unsupported', 'requires': 'catalog.missing'}]).encode()
+                    # A filtered row shares the title, but has a different ID/version.
+                    # Its large details must neither match nor exhaust a retained-row budget.
+                    rows = [{'title': 'Fixture', 'id': 'wrong', 'version': '0',
+                             'requires': 'catalog.missing', 'description': 'wrong' * 380,
+                             'author': 'a' * 1900, 'repository': 'r' * 1900,
+                             'details': {'url': url + '/wrong-details', 'format': 'html'}}]
+                    rows += [{'title': title, 'id': str(i), 'version': '1', 'url': url + '/book',
+                              'description': 'selected' + 'x' * 1890, 'author': 'a' * 1900,
+                              'repository': 'r' * 1900,
+                              'details': {'url': url + '/details', 'format': 'html'}}
+                             for i, title in enumerate(['Fixture', 'Second book', 'Café stories'])]
+                    data = json.dumps(rows).encode()
                 elif self.path == '/details':
                     data = ('<h1>Fixture details</h1><p>Café &amp; catalog</p>' + '<p>Long description for paging.</p>' * 60).encode()
                 elif self.path == '/lists':
@@ -134,7 +144,9 @@ def main():
         origin = f'https://localhost:{fixture.server_port}'
         write('/plugins/events/device.json', {'title': 'Event fixture', 'events': {name: {'connect': name == 'reader.exit', 'request': {'url': origin + '/events', 'body': '{event.id}:{event.book}:{event.ts}'}} for name in ['reader.open', 'reader.exit', 'reader.session', 'book.downloaded', 'sleep.enter']}})
         write('/plugins/json/device.json', {'title': 'Library catalog', 'browse': {'url': origin + '/json',
-              'fields': {'title': 'title', 'url': 'url', 'details_url': 'details.url', 'details_format': 'details.format'}, 'lists_url': origin + '/lists',
+              'fields': {'title': 'title', 'id': 'id', 'version': 'version', 'url': 'url',
+                         'description': 'description', 'detail_author': 'author', 'repository': 'repository',
+                         'details_url': 'details.url', 'details_format': 'details.format'}, 'lists_url': origin + '/lists',
               'compatibility': {'requires': 'requires'}},
               'download': {'url': '{url}', 'filename': '{title}.txt', 'dest_dir': '/Books'}})
         write('/plugins/auth/device.json', {'title': 'Sign-in catalog',

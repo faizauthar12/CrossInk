@@ -145,6 +145,7 @@
 - Exclude unused Arduino libraries and Bluetooth/Zigbee components from tuned firmware builds (adapted from Uri Tauber, CrossPoint #3857).
 - Install SD languages and hyphenation packs on PSRAM-equipped readers with small factory data partitions, including X4 Pro, using an SD cache loaded into PSRAM. Startup reuses an open cache file for sequential validation reads. The bootloader, partition table, and firmware slots remain unchanged.
 - Move OPDS Browser into File Transfer, keeping room for Plugins and Settings on Home.
+- Match plugin catalog details by item ID, or title and version when no ID is available, following upstream behavior.
 
 ## [v1.6.1] - 2026-10-03
 
