@@ -3,6 +3,15 @@
 #include <unistd.h>
 
 #include "util/PluginBundle.h"
+#include "util/PluginEvents.h"
+
+namespace {
+int subscriptionRefreshes = 0;
+}
+namespace pluginevents {
+void refreshSubscriptions() { ++subscriptionRefreshes; }
+}  // namespace pluginevents
+
 namespace {
 class BundleTest : public testing::Test {
  protected:
@@ -13,6 +22,7 @@ class BundleTest : public testing::Test {
     std::filesystem::create_directories(bundle_test::root / ".crosspoint");
     bundle_test::renameCalls = bundle_test::failRename = 0;
     bundle_test::failJournalClose = false;
+    subscriptionRefreshes = 0;
     write(std::string(dest) + "/plugin.js", "old script");
     write(std::string(dest) + "/token.json", "saved login");
   }
@@ -37,6 +47,7 @@ TEST_F(BundleTest, SuccessfulUpdatePreservesExistingLogin) {
   EXPECT_EQ(read(std::string(dest) + "/plugin.js"), "new script");
   EXPECT_EQ(read(std::string(dest) + "/token.json"), "saved login");
   EXPECT_FALSE(Storage.exists("/.crosspoint/plugin-install.txt"));
+  EXPECT_EQ(subscriptionRefreshes, 1);
 }
 TEST_F(BundleTest, FailedRenameNeverLosesInstalledFolder) {
   for (int failAt = 1; failAt <= 3; ++failAt) {
@@ -44,6 +55,7 @@ TEST_F(BundleTest, FailedRenameNeverLosesInstalledFolder) {
     bundle_test::renameCalls = 0;
     bundle_test::failRename = failAt;
     EXPECT_FALSE(PluginBundle::publish(dest));
+    EXPECT_EQ(subscriptionRefreshes, 0);
     bundle_test::failRename = 0;
     ASSERT_TRUE(PluginBundle::recoverPending());
     EXPECT_EQ(read(std::string(dest) + "/plugin.js"), "old script");

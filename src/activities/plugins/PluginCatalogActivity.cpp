@@ -1,5 +1,6 @@
 #include "PluginCatalogActivity.h"
 
+#include <AppVersion.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FontCacheManager.h>
@@ -397,7 +398,7 @@ std::string PluginCatalogActivity::substituted(std::string tpl, const Item* item
   substituteAll(tpl, "{token}", token);
   for (const auto& kv : config) substituteAll(tpl, ("{cfg." + kv.first + "}").c_str(), kv.second);
   substituteAll(tpl, "{firmware_family}", firmwareidentity::FAMILY);
-  substituteAll(tpl, "{firmware_version}", CROSSINK_VERSION);
+  substituteAll(tpl, "{firmware_version}", AppVersion::version());
   substituteAll(tpl, "{plugin_capabilities}", firmwareidentity::PLUGIN_CAPABILITIES);
   char num[16];
   snprintf(num, sizeof(num), "%d", firmwareidentity::PLUGIN_API_VERSION);
