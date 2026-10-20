@@ -8,6 +8,8 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <JsonListParser.h>
+#include <LibraryBuilder.h>
+#include <LibraryFileTypes.h>
 #include <Logging.h>
 #include <MD5Builder.h>
 #include <Memory.h>
@@ -17,20 +19,28 @@
 #include <strings.h>
 
 #include <algorithm>
+#include <array>
+#include <cstdlib>
 #include <cstring>
 #include <new>
+#include <string_view>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
+#include "activities/settings/PluginHubInstallActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/CatalogScreens.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "network/HttpDownloader.h"
 #include "network/ProtectedPaths.h"
 #include "util/BookCacheUtils.h"
+#include "util/FirmwareIdentity.h"
 #include "util/PluginBundle.h"
 #include "util/PluginHttp.h"
 #include "util/PluginLocations.h"
+#include "util/PluginPickerLayout.h"
 #include "util/QrUtils.h"
 #include "util/StringUtils.h"
 
@@ -53,7 +63,14 @@ constexpr size_t MAX_API_RESPONSE = 48 * 1024;
 // response until leaving the catalog so downloads can release the parsed rows.
 constexpr char BROWSE_TMP_PATH[] = "/.pcat_tmp.json";
 constexpr size_t MAX_BROWSE_RESPONSE = 1024 * 1024;
+constexpr size_t MAX_BROWSE_LIST_INDEX_RESPONSE = 16 * 1024;
 constexpr int MAX_PAGE_SIZE = 16;
+
+// JsonListParser has six generic field slots. The compatibility and details
+// passes store other fields in the slots they do not need.
+constexpr auto COMPAT_FAMILY = JsonListParser::F_AUTHOR;
+constexpr auto COMPAT_API_MIN = JsonListParser::F_ID;
+constexpr auto COMPAT_REQUIRES = JsonListParser::F_URL;
 
 std::string md5Hex(const std::string& text) {
   MD5Builder md5;
@@ -66,6 +83,53 @@ std::string md5Hex(const std::string& text) {
 // Returns `override` unless it's empty, in which case `fallback` applies.
 const std::string& pick(const std::string& override, const std::string& fallback) {
   return override.empty() ? fallback : override;
+}
+
+std::string_view trimCsvToken(std::string_view token) {
+  while (!token.empty() && (token.front() == ' ' || token.front() == '	')) token.remove_prefix(1);
+  while (!token.empty() && (token.back() == ' ' || token.back() == '	')) token.remove_suffix(1);
+  return token;
+}
+
+// Calls fn(token) for each trimmed comma-separated token; stops early when fn returns false.
+template <typename Fn>
+bool allCsvTokens(std::string_view csv, Fn fn) {
+  size_t start = 0;
+  while (true) {
+    size_t end = csv.find(',', start);
+    if (end == std::string_view::npos) end = csv.size();
+    if (!fn(trimCsvToken(csv.substr(start, end - start)))) return false;
+    if (end == csv.size()) return true;
+    start = end + 1;
+  }
+}
+
+bool csvContainsToken(std::string_view csv, const std::string_view wanted) {
+  return !allCsvTokens(csv, [wanted](const std::string_view token) { return token != wanted; });
+}
+
+bool matchesCsvRestriction(const std::string& restriction, const std::string_view current) {
+  return restriction.empty() || csvContainsToken(restriction, current);
+}
+
+bool matchesPluginApiMinimum(const std::string& minimum) {
+  if (minimum.empty()) return true;
+  char* end = nullptr;
+  const long parsed = strtol(minimum.c_str(), &end, 10);
+  return end != minimum.c_str() && *end == '\0' && parsed >= 0 && parsed <= firmwareidentity::PLUGIN_API_VERSION;
+}
+
+bool matchesCapabilities(const std::string& required) {
+  if (required.empty()) return true;
+  return allCsvTokens(required, [](const std::string_view capability) {
+    return !capability.empty() && csvContainsToken(firmwareidentity::PLUGIN_CAPABILITIES, capability);
+  });
+}
+
+bool catalogEntryCompatible(const std::string& family, const std::string& apiMin,
+                            const std::string& requiredCapabilities) {
+  return matchesCsvRestriction(family, firmwareidentity::FAMILY) && matchesPluginApiMinimum(apiMin) &&
+         matchesCapabilities(requiredCapabilities);
 }
 
 // Plugin folder name from its "<root>/<name>/device.json" manifest path.
@@ -139,6 +203,13 @@ std::vector<PluginRef> discoverPlugins() {
 
     plugins.push_back(std::move(ref));
   }
+  std::sort(plugins.begin(), plugins.end(), [](const PluginRef& lhs, const PluginRef& rhs) {
+    const bool lhsHub = lhs.name == "pluginhub";
+    const bool rhsHub = rhs.name == "pluginhub";
+    if (lhsHub != rhsHub) return lhsHub;
+    const int titleOrder = strcasecmp(lhs.title.c_str(), rhs.title.c_str());
+    return titleOrder != 0 ? titleOrder < 0 : strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
+  });
   return plugins;
 }
 
@@ -162,15 +233,25 @@ bool PluginCatalogActivity::loadManifest() {
   manifest.idPath = browse["fields"]["id"] | "";
   manifest.urlPath = browse["fields"]["url"] | "";
   manifest.versionPath = browse["fields"]["version"] | "";
+  JsonVariantConst compatibility = browse["compatibility"];
+  manifest.compatFamilyPath = compatibility["firmware_family"] | "";
+  manifest.compatApiMinPath = compatibility["plugin_api_min"] | "";
+  manifest.compatRequiresPath = compatibility["requires"] | "";
   manifest.pageSize = browse["page_size"] | 8;
   // Documented bounds: each row costs an Item (strings) and a screen slot.
   manifest.pageSize = std::clamp(manifest.pageSize, 1, MAX_PAGE_SIZE);
+  manifest.browseListsUrl = browse["lists_url"] | "";
   manifest.browseLists.reserve(browse["lists"].size());
   for (JsonVariantConst l : browse["lists"].as<JsonArrayConst>()) {
     Manifest::BrowseList entry;
     entry.title = l["title"] | "";
     entry.url = l["url"] | "";
     entry.body = l["body"] | "";
+    JsonVariantConst notice = l["notice"];
+    entry.noticeTitle = notice["title"] | "";
+    entry.noticeMessage = notice["message"] | "";
+    entry.noticeConfirm = notice["confirm"] | "";
+    entry.noticeCancel = notice["cancel"] | "";
     if (!entry.title.empty()) manifest.browseLists.push_back(std::move(entry));
   }
   manifest.searchUrl = browse["search"]["url"] | "";
@@ -219,6 +300,50 @@ bool PluginCatalogActivity::loadManifest() {
   return !manifest.browseReq.url.empty();
 }
 
+bool PluginCatalogActivity::loadBrowseListIndex() {
+  if (manifest.browseListsUrl.empty()) return true;
+
+  String response;
+  const std::string url = substituted(manifest.browseListsUrl, nullptr);
+  const int status = pluginhttp::request(session.get(), url, "GET", "", {}, response, MAX_BROWSE_LIST_INDEX_RESPONSE);
+  if (status < 200 || status >= 300) {
+    LOG_ERR("PCAT", "browse list index fetch failed: status=%d %s", status, url.c_str());
+    return false;
+  }
+
+  JsonDocument doc;
+  if (deserializeJson(doc, response) != DeserializationError::Ok) {
+    LOG_ERR("PCAT", "browse list index parse failed: %s", url.c_str());
+    return false;
+  }
+  JsonArrayConst lists = doc["lists"].as<JsonArrayConst>();
+  if (lists.isNull() || lists.size() == 0) {
+    LOG_ERR("PCAT", "browse list index has no lists: %s", url.c_str());
+    return false;
+  }
+
+  manifest.browseLists.clear();
+  manifest.browseLists.reserve(std::min<size_t>(lists.size(), 16));
+  for (JsonVariantConst l : lists) {
+    if (manifest.browseLists.size() == 16) break;
+    Manifest::BrowseList entry;
+    entry.title = l["title"] | "";
+    entry.url = l["url"] | "";
+    entry.body = l["body"] | "";
+    JsonVariantConst notice = l["notice"];
+    entry.noticeTitle = notice["title"] | "";
+    entry.noticeMessage = notice["message"] | "";
+    entry.noticeConfirm = notice["confirm"] | "";
+    entry.noticeCancel = notice["cancel"] | "";
+    if (!entry.title.empty() && !entry.url.empty()) manifest.browseLists.push_back(std::move(entry));
+  }
+  if (manifest.browseLists.empty()) {
+    LOG_ERR("PCAT", "browse list index has no valid lists: %s", url.c_str());
+    return false;
+  }
+  return true;
+}
+
 bool PluginCatalogActivity::saveToken(const std::string& value) {
   return pluginhttp::saveTokenToFile(manifest.tokenFile, manifest.tokenPath, value);
 }
@@ -245,7 +370,12 @@ pluginhttp::RequestSpec PluginCatalogActivity::substitutedRequest(const pluginht
 std::string PluginCatalogActivity::substituted(std::string tpl, const Item* item) const {
   substituteAll(tpl, "{token}", token);
   for (const auto& kv : config) substituteAll(tpl, ("{cfg." + kv.first + "}").c_str(), kv.second);
+  substituteAll(tpl, "{firmware_family}", firmwareidentity::FAMILY);
+  substituteAll(tpl, "{firmware_version}", CROSSINK_VERSION);
+  substituteAll(tpl, "{plugin_capabilities}", firmwareidentity::PLUGIN_CAPABILITIES);
   char num[16];
+  snprintf(num, sizeof(num), "%d", firmwareidentity::PLUGIN_API_VERSION);
+  substituteAll(tpl, "{plugin_api}", num);
   snprintf(num, sizeof(num), "%d", page);
   substituteAll(tpl, "{page}", num);
   snprintf(num, sizeof(num), "%d", manifest.pageSize + 1);
@@ -349,6 +479,8 @@ void PluginCatalogActivity::enterPluginPicker() {
   pendingWork = Work::None;
   closeRouting();
   installedPlugins = discoverPlugins();
+  pluginHubAvailable = PluginHubInstallActivity::isAvailable();
+  showPluginHubInstallRow = !pluginHubAvailable && !SETTINGS.pluginHubPromptHidden;
   manifestPath.clear();
   manifest = Manifest{};
   catalogTitle = tr(STR_PLUGINS);
@@ -360,7 +492,12 @@ void PluginCatalogActivity::enterPluginPicker() {
   errorMessage.clear();
   session.reset();  // no TLS while only picking
   state = State::PLUGIN_PICKER;
-  if (pickerReturnRow > 0 && pickerReturnRow < rowCount()) moveSelectionTo(pickerReturnRow);
+  for (size_t i = 0; i < installedPlugins.size(); ++i) {
+    if (installedPlugins[i].name != pickerReturnName) continue;
+    const int prefixRows = (showPluginHubInstallRow ? 1 : 0);
+    moveSelectionTo(prefixRows + static_cast<int>(i));
+    break;
+  }
   requestUpdate();
 }
 
@@ -397,6 +534,37 @@ void PluginCatalogActivity::resetBrowse() {
   nav.reset();
 }
 
+// Shows the list's notice first when it has one. Declining stays on the
+// picker, or leaves the catalog when this list is the only one.
+void PluginCatalogActivity::openList(const int index) {
+  const auto& list = manifest.browseLists[index];
+  if (!list.hasNotice()) {
+    currentList = index;
+    startBrowse();
+    return;
+  }
+  const std::string heading = substituted(list.noticeTitle.empty() ? list.title : list.noticeTitle, nullptr);
+  const std::string message = substituted(list.noticeMessage, nullptr);
+  const std::string cancel = substituted(list.noticeCancel, nullptr);
+  const std::string confirm = substituted(list.noticeConfirm, nullptr);
+  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, message);
+  if (!confirmation) {
+    LOG_ERR("PCAT", "OOM: browse-list notice");
+    if (manifest.browseLists.size() == 1) exitCatalog();
+    return;
+  }
+  confirmation->setOptionLabels(cancel, confirm);
+  startActivityForResult(std::move(confirmation), [this, index](const ActivityResult& result) {
+    RenderLock lock;
+    if (result.isCancelled) {
+      if (manifest.browseLists.size() == 1) exitCatalog();
+      return;
+    }
+    currentList = index;
+    startBrowse();
+  });
+}
+
 bool PluginCatalogActivity::wantsListPicker() const {
   return !manifest.browseLists.empty() && !manifest.isXmlList() && currentList < 0;
 }
@@ -409,11 +577,10 @@ void PluginCatalogActivity::onExit() {
 }
 
 void PluginCatalogActivity::startBrowseNow() {
-  // Browse lists apply to JSON catalogs; XML lists navigate by folder instead.
-  if (wantsListPicker()) {
-    // Same auth gate as fetchPage: without it a signed-out user is shown the
-    // list picker and only hits the sign-in screen after picking a list.
-    // loadToken() returns true for token-less catalogs, which skip the gate.
+  const bool needsListAuth = (!manifest.browseListsUrl.empty() && manifest.browseLists.empty()) || wantsListPicker();
+  if (needsListAuth) {
+    // Dynamic list indexes and list pickers may both use {token}/{cfg.KEY}, so
+    // resolve credentials before either path. Token-less catalogs skip the gate.
     loadConfig();
     if (!loadToken() && !(manifest.hasPasswordGrant() && refreshCredentialToken())) {
       if (manifest.hasDeviceCode()) {
@@ -422,6 +589,19 @@ void PluginCatalogActivity::startBrowseNow() {
         state = State::NO_TOKEN;
         requestUpdate();
       }
+      return;
+    }
+  }
+  if (!manifest.browseListsUrl.empty() && manifest.browseLists.empty()) {
+    if (!loadBrowseListIndex()) {
+      fail(StrId::STR_FETCH_FEED_FAILED);
+      return;
+    }
+  }
+  // Browse lists apply to JSON catalogs; XML lists navigate by folder instead.
+  if (wantsListPicker()) {
+    if (manifest.browseLists.size() == 1) {
+      openList(0);  // a one-entry picker is just an extra click
       return;
     }
     clearItems();
@@ -576,7 +756,8 @@ bool PluginCatalogActivity::nextRowVisible() const {
 }
 
 int PluginCatalogActivity::rowCount() const {
-  if (state == State::PLUGIN_PICKER) return static_cast<int>(installedPlugins.size());
+  if (state == State::PLUGIN_PICKER)
+    return static_cast<int>(installedPlugins.size()) + (showPluginHubInstallRow ? 1 : 0);
   if (state == State::LIST_PICKER) return static_cast<int>(manifest.browseLists.size());
   if (state != State::BROWSING) return 0;
   return static_cast<int>(itemCount) + (prevRowVisible() ? 1 : 0) + (nextRowVisible() ? 1 : 0);
@@ -608,10 +789,57 @@ bool PluginCatalogActivity::parseBrowseResponse() {
   session.reset();
   if (manifest.isXmlList()) return parseXmlList();
 
+  // Compatibility is opt-in. If the manifest does not map compatibility
+  // fields, the normal single streaming pass is unchanged. When it does, make
+  // a bounded first pass that remembers compatible indexes only from the
+  // displayed page. The extra titled row remains pagination lookahead.
+  // Catalog entries that omit compatibility values match by default; explicit
+  // restrictions must match this firmware.
+  std::array<int, MAX_PAGE_SIZE> compatibleRows{};
+  size_t compatibleCount = 0;
+  bool rawHasMore = false;
+  if (manifest.filtersCompatibility()) {
+    int rowIndex = 0;
+    int titledRows = 0;
+    const std::string unused;
+    auto selectCompatible = [&](JsonListParser::Row& row) {
+      const int thisRow = rowIndex++;
+      if (row.field[JsonListParser::F_TITLE].empty()) return;
+      if (++titledRows > manifest.pageSize) {
+        rawHasMore = true;
+        return;
+      }
+      if (catalogEntryCompatible(row.field[COMPAT_FAMILY], row.field[COMPAT_API_MIN], row.field[COMPAT_REQUIRES]))
+        compatibleRows[compatibleCount++] = thisRow;
+    };
+    const std::string* compatibilityFields[JsonListParser::F_COUNT] = {};
+    for (auto& field : compatibilityFields) field = &unused;
+    compatibilityFields[JsonListParser::F_TITLE] = &manifest.titlePath;
+    compatibilityFields[COMPAT_FAMILY] = &manifest.compatFamilyPath;
+    compatibilityFields[COMPAT_API_MIN] = &manifest.compatApiMinPath;
+    compatibilityFields[COMPAT_REQUIRES] = &manifest.compatRequiresPath;
+    auto compatibilityParser = makeUniqueNoThrow<JsonListParser>(
+        manifest.itemsPath, compatibilityFields, unused,
+        [](void* context, JsonListParser::Row& row) { (*static_cast<decltype(selectCompatible)*>(context))(row); },
+        &selectCompatible);
+    if (!streamBrowseFile(compatibilityParser.get())) {
+      fail(StrId::STR_PARSE_FEED_FAILED);
+      return false;
+    }
+  }
+
   releaseRows();
   if (!allocateItems(manifest.pageSize + 1)) return false;
-  // One extra row reveals whether a next page exists.
+  int rowIndex = 0;
+  size_t compatibleIndex = 0;
+  // The unfiltered extra row controls server pagination; compatibility only
+  // controls which rows from this page are displayed.
   auto append = [&](JsonListParser::Row& row) {
+    const int thisRow = rowIndex++;
+    if (manifest.filtersCompatibility()) {
+      if (compatibleIndex >= compatibleCount || compatibleRows[compatibleIndex] != thisRow) return;
+      compatibleIndex++;
+    }
     if (row.field[JsonListParser::F_TITLE].empty() || static_cast<int>(itemCount) > manifest.pageSize) return;
     Item item;
     item.title = std::move(row.field[JsonListParser::F_TITLE]);
@@ -635,8 +863,8 @@ bool PluginCatalogActivity::parseBrowseResponse() {
     fail(StrId::STR_PARSE_FEED_FAILED);
     return false;
   }
-  hasMore = static_cast<int>(itemCount) > manifest.pageSize;
-  if (hasMore) {
+  hasMore = manifest.filtersCompatibility() ? rawHasMore : static_cast<int>(itemCount) > manifest.pageSize;
+  if (static_cast<int>(itemCount) > manifest.pageSize) {
     items[manifest.pageSize] = {};
     itemCount = manifest.pageSize;
   }
@@ -670,8 +898,7 @@ void PluginCatalogActivity::computeInstallStatus() {
     if (deserializeJson(doc, raw, DeserializationOption::Filter(filter)) == DeserializationError::Ok) {
       installed = doc["version"] | "";
     }
-    item.status =
-        PluginLocations::isNewerVersion(item.version, installed) ? tr(STR_UPDATE) : tr(STR_INSTALLED);
+    item.status = PluginLocations::isNewerVersion(item.version, installed) ? tr(STR_UPDATE) : tr(STR_INSTALLED);
   }
 }
 
@@ -777,7 +1004,10 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBundle(const Item& 
     return HttpDownloader::FILE_ERROR;
   std::string directory = downloadDir();
   while (!directory.empty() && directory.back() == '/') directory.pop_back();
-  directory += '/' + subdir;
+  const std::string installed = PluginLocations::shouldReuseInstalledBundleDir(directory, subdir)
+                                    ? PluginLocations::findPluginDir(subdir.c_str())
+                                    : std::string{};
+  directory = installed.empty() ? directory + '/' + subdir : installed;
   if (!protectedpaths::isPluginPath(directory)) return HttpDownloader::FILE_ERROR;
   const auto cancelled = [](void* context) {
     auto* self = static_cast<PluginCatalogActivity*>(context);
@@ -883,6 +1113,7 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& it
   }
   if (result != HttpDownloader::OK) return result;
   clearBookCache(dest);
+  if (library::fileTypeFor(dest)) library::invalidateLibraryIndex();
 
   // Optional per-book sidecar (e.g. a service book id keyed by the file's
   // path hash) so a later sync stage can associate the file with the service.
@@ -912,6 +1143,15 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& it
 
 // Sign-in and completion states precede the shared catalog input handling.
 bool PluginCatalogActivity::handleCustomInput() {
+  if (ignoreHubInstallerBackRelease) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      ignoreHubInstallerBackRelease = false;
+      return true;
+    }
+    if (!mappedInput.isPressed(MappedInputManager::Button::Back)) ignoreHubInstallerBackRelease = false;
+  }
+  if (pluginHubPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
+
   if (state == State::AUTH) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
         TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
@@ -960,7 +1200,7 @@ bool PluginCatalogActivity::handleCustomInput() {
 void PluginCatalogActivity::retryBrowse() {
   if (state == State::NO_TOKEN && manifest.hasDeviceCode()) {
     beginAuth();
-  } else if (wantsListPicker()) {
+  } else if ((!manifest.browseListsUrl.empty() && manifest.browseLists.empty()) || wantsListPicker()) {
     startBrowse();
   } else {
     beginLoading();
@@ -987,6 +1227,7 @@ void PluginCatalogActivity::onBackButton() {
     // Leave the results and return to the pre-search view (picker or page 1).
     searchActive = false;
     searchQuery.clear();
+    if (manifest.browseLists.size() == 1) currentList = 0;  // its notice was already accepted
     startBrowse();
     return;
   }
@@ -995,7 +1236,7 @@ void PluginCatalogActivity::onBackButton() {
     browseHistory.pop_back();
     beginLoading();
     fetchPage(page);
-  } else if (state == State::BROWSING && currentList >= 0) {
+  } else if (state == State::BROWSING && currentList >= 0 && manifest.browseLists.size() > 1) {
     // Browsing a picked list: Back returns to the list picker, not out.
     currentList = -1;
     startBrowse();
@@ -1007,10 +1248,35 @@ void PluginCatalogActivity::onBackButton() {
 void PluginCatalogActivity::activateIndex(const int index) {
   if (state == State::PLUGIN_PICKER) {
     if (index < 0 || index >= rowCount()) return;
-    const PluginRef& plugin = installedPlugins[index];
+    if (showPluginHubInstallRow && index == 0) {
+      static constexpr StrId OPTIONS[] = {StrId::STR_DOWNLOAD, StrId::STR_HIDE, StrId::STR_CANCEL};
+      pluginHubPopup.show(StrId::STR_PLUGIN_HUB, OPTIONS, 3, 0, [this](const int selected) {
+        if (selected == 0) {
+          auto installer = makeUniqueNoThrow<PluginHubInstallActivity>(renderer, mappedInput, false);
+          if (!installer) {
+            LOG_ERR("PCAT", "OOM: Plugin Hub installer");
+            return;
+          }
+          startActivityForResult(std::move(installer), [this](const ActivityResult& result) {
+            RenderLock lock;
+            ignoreHubInstallerBackRelease =
+                result.isCancelled && mappedInput.isPressed(MappedInputManager::Button::Back);
+            enterPluginPicker();
+          });
+        } else if (selected == 1) {
+          SETTINGS.pluginHubPromptHidden = 1;
+          SETTINGS.saveToFile();
+          enterPluginPicker();
+        }
+      });
+      requestUpdate();
+      return;
+    }
+    const int syntheticHubRows = showPluginHubInstallRow ? 1 : 0;
+    const PluginRef& plugin = installedPlugins[index - syntheticHubRows];
     if (plugin.deviceKind != PluginLocations::DeviceKind::Catalog) return;
     app.clearTapFlash();  // the row leaves this screen
-    pickerReturnRow = index;
+    pickerReturnName = plugin.name;
     manifestPath = plugin.manifestPath;
     catalogTitle = plugin.title;
     enterCatalog();
@@ -1019,8 +1285,7 @@ void PluginCatalogActivity::activateIndex(const int index) {
   if (state == State::LIST_PICKER) {
     if (index < 0 || index >= static_cast<int>(manifest.browseLists.size())) return;
     app.clearTapFlash();
-    currentList = index;
-    startBrowse();
+    openList(index);
     return;
   }
   // The pager rows bracket the items: "Previous page" ahead of them past
@@ -1046,6 +1311,7 @@ void PluginCatalogActivity::activateItem(const int itemIndex) {
     fetchPage(page);
     return;
   }
+
   downloadItem(itemIndex);
 }
 
@@ -1094,6 +1360,11 @@ void PluginCatalogActivity::drawFooter() {
       break;
   }
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+void PluginCatalogActivity::render(RenderLock&& lock) {
+  if (pluginHubPopup.processRender(renderer, mappedInput)) return;
+  CatalogActivity::render(std::move(lock));
 }
 
 void PluginCatalogActivity::buildScreen(UiScreen& screen) {
@@ -1189,8 +1460,13 @@ void PluginCatalogActivity::buildBrowsingScreen(UiScreen& screen) {
     props.separatorPaint = fui::Paint::solid(fui::Color::Black);
     props.subtitleText = screen.theme().smallText;
     props.subtitleText.maxLines = 2;
+  } else if (state == State::BROWSING && !manifest.isXmlList()) {
+    // Keep catalog descriptions readable before downloading.
+    props.subtitleText = screen.theme().smallText;
+    props.subtitleText.maxLines = 3;
   }
   syncListViewport(screen, props);
+  if (state == State::PLUGIN_PICKER) fitPluginSubtitleToViewport(screen.target(), screen.body().height, props);
   screen.list(props);
 }
 
@@ -1209,6 +1485,7 @@ void PluginCatalogActivity::rebuildRowItems() {
     rowItems.push_back(row);
   };
   if (state == State::PLUGIN_PICKER) {
+    if (showPluginHubInstallRow) addRow(tr(STR_PLUGIN_HUB), tr(STR_PLUGIN_HUB_DESCRIPTION), ">");
     for (const auto& plugin : installedPlugins) {
       // Only catalogs have an on-device action in this integration.
       const char* subtitle = plugin.description.empty() ? nullptr : plugin.description.c_str();

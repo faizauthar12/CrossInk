@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "ממתין לאישור..."
 STR_PLUGIN_AUTH_FAILED: "ההתחברות נכשלה או פגה"
 STR_PLUGIN_WEB_ONLY: "תוסף לדפדפן בלבד"
 STR_DOWNLOAD_COMPLETE: "ההורדה הושלמה"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "גילוי ועדכון תוספים"

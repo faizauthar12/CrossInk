@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Yetkilendirme bekleniyor..."
 STR_PLUGIN_AUTH_FAILED: "Giriş başarısız veya süresi doldu"
 STR_PLUGIN_WEB_ONLY: "Yalnızca web eklentisi"
 STR_DOWNLOAD_COMPLETE: "İndirme tamamlandı"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Eklentileri keşfet ve güncelle"

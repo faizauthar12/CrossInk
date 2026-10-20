@@ -1536,13 +1536,16 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::Plugins: {
-        auto plugins = makeUniqueNoThrow<PluginCatalogActivity>(renderer, mappedInput);
-        if (!plugins) {
-          LOG_ERR("SET", "OOM: plugins");
-          break;
-        }
-        startActivityForResult(std::move(plugins), resultHandler);
-        break;
+        static constexpr StrId OPTIONS[] = {StrId::STR_ENABLED, StrId::STR_DISABLED, StrId::STR_CANCEL};
+        optionPopup.show(StrId::STR_PLUGINS, OPTIONS, 3, SETTINGS.pluginsEnabled ? 0 : 1, [this](const int idx) {
+          if (idx == 2) return;
+          SETTINGS.pluginsEnabled = idx == 0 ? 1 : 0;
+          if (SETTINGS.pluginsEnabled) SETTINGS.pluginHubPromptHidden = 0;
+          SETTINGS.saveToFile();
+          rebuildSettingsLists();
+        });
+        requestUpdate();
+        return;
       }
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
@@ -1767,6 +1770,7 @@ void SettingsActivity::openIdleTimeThresholdPicker() {
 
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
   if (isPageGestureSettingDisabled(setting)) return tr(STR_DISABLED);
+  if (setting.action == SettingAction::Plugins) return SETTINGS.pluginsEnabled ? tr(STR_ENABLED) : tr(STR_DISABLED);
   if (settingShowsNavigationCaret(setting)) return ">";
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     return SETTINGS.*(setting.valuePtr) ? tr(STR_ON) : tr(STR_OFF);

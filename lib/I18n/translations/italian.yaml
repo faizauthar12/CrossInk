@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "In attesa di autorizzazione..."
 STR_PLUGIN_AUTH_FAILED: "Accesso non riuscito o scaduto"
 STR_PLUGIN_WEB_ONLY: "Plugin solo web"
 STR_DOWNLOAD_COMPLETE: "Download completato"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Scopri e aggiorna i plugin"

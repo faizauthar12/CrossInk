@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Esperando autorización..."
 STR_PLUGIN_AUTH_FAILED: "El inicio de sesión falló o caducó"
 STR_PLUGIN_WEB_ONLY: "Complemento solo web"
 STR_DOWNLOAD_COMPLETE: "Descarga completada"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Descubrir y actualizar complementos"

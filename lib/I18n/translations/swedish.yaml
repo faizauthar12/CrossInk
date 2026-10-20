@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Väntar på godkännande..."
 STR_PLUGIN_AUTH_FAILED: "Inloggningen misslyckades eller löpte ut"
 STR_PLUGIN_WEB_ONLY: "Endast webbinsticksprogram"
 STR_DOWNLOAD_COMPLETE: "Nedladdning klar"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Hitta och uppdatera insticksprogram"

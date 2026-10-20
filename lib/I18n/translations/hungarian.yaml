@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Várakozás engedélyezésre..."
 STR_PLUGIN_AUTH_FAILED: "Sikertelen vagy lejárt bejelentkezés"
 STR_PLUGIN_WEB_ONLY: "Csak webes bővítmény"
 STR_DOWNLOAD_COMPLETE: "Letöltés kész"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Bővítmények keresése és frissítése"

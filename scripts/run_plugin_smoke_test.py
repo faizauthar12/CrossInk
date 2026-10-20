@@ -56,7 +56,9 @@ def main():
                     data = json.dumps([{'title': 'Signed-in library', 'url': url + '/book'}]).encode()
                 elif self.path == '/json':
                     data = json.dumps([{'title': title, 'url': url + '/book'} for title in
-                                       ['Fixture', 'Second book', 'Café stories']]).encode()
+                                       ['Fixture', 'Second book', 'Café stories']] + [{'title': 'Unsupported', 'requires': 'catalog.missing'}]).encode()
+                elif self.path == '/lists':
+                    data = json.dumps({'lists': [{'title': 'Books', 'url': url + '/json'}]}).encode()
                 elif self.path == '/xml':
                     data = ('<files>' + ''.join(f'<file url="{url}/book/{i}" title="Book {i:03}"/>'
                                                 for i in range(200)) + '</files>').encode()
@@ -95,7 +97,8 @@ def main():
         threading.Thread(target=fixture.serve_forever, daemon=True).start()
         origin = f'https://localhost:{fixture.server_port}'
         write('/plugins/json/device.json', {'title': 'Library catalog', 'browse': {'url': origin + '/json',
-              'fields': {'title': 'title', 'url': 'url'}},
+              'fields': {'title': 'title', 'url': 'url'}, 'lists_url': origin + '/lists',
+              'compatibility': {'requires': 'requires'}},
               'download': {'url': '{url}', 'filename': '{title}.txt', 'dest_dir': '/Books'}})
         write('/plugins/auth/device.json', {'title': 'Sign-in catalog',
               'token': {'file': 'token.json', 'path': 'access_token'},
@@ -108,7 +111,7 @@ def main():
         write('/plugins/xml/device.json', {'title': 'XML directory', 'browse': {'url': origin + '/xml',
               'format': 'xml', 'item': 'file', 'fields': {'title': '@title', 'url': '@url'}}, 'download': {}})
         write('/plugins/bundles/device.json', {'title': 'Plugin catalog', 'browse': {'url': origin + '/bundles',
-              'fields': {'title': 'title', 'id': 'id'}}, 'download': {'dest_dir': '/plugins',
+              'fields': {'title': 'title', 'id': 'id'}}, 'download': {'dest_dir': '/.crosspoint/plugins',
               'bundle': {'base': 'base', 'files': 'files', 'subdir': '{id}'}}})
         write('/plugins/installed/manifest.json', {'title': 'Browser tools'})
         write('/plugins/installed/plugin.js', 'old')

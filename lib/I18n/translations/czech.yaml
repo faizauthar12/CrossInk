@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Čekání na autorizaci..."
 STR_PLUGIN_AUTH_FAILED: "Přihlášení selhalo nebo vypršelo"
 STR_PLUGIN_WEB_ONLY: "Doplněk pouze pro web"
 STR_DOWNLOAD_COMPLETE: "Stahování dokončeno"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Hledat a aktualizovat doplňky"

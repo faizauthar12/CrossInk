@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Čakanje na odobritev..."
 STR_PLUGIN_AUTH_FAILED: "Prijava ni uspela ali je potekla"
 STR_PLUGIN_WEB_ONLY: "Samo spletni vtičnik"
 STR_DOWNLOAD_COMPLETE: "Prenos končan"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Poišči in posodobi vtičnike"

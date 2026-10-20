@@ -40,7 +40,6 @@
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
-#include "util/PluginLocations.h"
 
 namespace {
 constexpr uint32_t CAROUSEL_CACHE_MAGIC = 0x43434152;  // "CCAR"
@@ -830,7 +829,7 @@ void HomeActivity::onEnter() {
 
   Activity::onEnter();
 
-  hasPlugins = !PluginLocations::scanPlugins().empty();
+  hasPlugins = SETTINGS.pluginsEnabled != 0;
   if (UITheme::hasCoverGridHome()) {
     coverGridUi = makeUniqueNoThrow<CoverGridHomeUi>(renderer);
     if (!coverGridUi) LOG_ERR("HOME", "Cannot allocate cover grid UI; using standard Home");

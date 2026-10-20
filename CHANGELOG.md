@@ -39,9 +39,11 @@
 - Enable Tilt: Next Page Only in Controls to advance a page with either tilt direction on supported devices.
 - Jump to a percentage in XTC and XTCH books from the reader menu, using the same slider and numeric keypad as EPUB books.
 
-- Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Open Plugins from Home when plugins are installed, or from Settings → System → Plugins.
+- Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Enable Plugins in Settings → System, then open Plugins from Home. Download the optional Plugin Hub to discover, install, and update compatible plugins.
 
 ### Fixed
+
+- Refresh the Library after plugin book downloads and keep long plugin descriptions readable.
 
 - Keep font upload and delete feedback visible while scrolling on the web portal, including mobile, and prevent older notification timers from hiding newer messages (adapted from CrossPoint #3984).
 

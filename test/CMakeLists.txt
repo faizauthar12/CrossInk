@@ -156,3 +156,5 @@ add_subdirectory(protected_paths)
 add_subdirectory(plugin_manifest_classification)
 add_subdirectory(plugin_http_policy)
 add_subdirectory(plugin_bundle)
+
+add_subdirectory(plugin_picker_layout)

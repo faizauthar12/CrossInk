@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Wachten op toestemming..."
 STR_PLUGIN_AUTH_FAILED: "Aanmelding mislukt of verlopen"
 STR_PLUGIN_WEB_ONLY: "Plugin alleen voor web"
 STR_DOWNLOAD_COMPLETE: "Download voltooid"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Plug-ins zoeken en bijwerken"

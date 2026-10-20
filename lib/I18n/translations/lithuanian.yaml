@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Laukiama leidimo..."
 STR_PLUGIN_AUTH_FAILED: "Prisijungti nepavyko arba laikas baigėsi"
 STR_PLUGIN_WEB_ONLY: "Tik žiniatinklio papildinys"
 STR_DOWNLOAD_COMPLETE: "Atsisiuntimas baigtas"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Rasti ir atnaujinti papildinius"

@@ -65,11 +65,13 @@ void CatalogActivity::launchWifiSelection() {
   startActivityForResult(std::move(wifi), [this](const ActivityResult& result) {
     RenderLock lock;
     if (result.isCancelled)
-      fail(StrId::STR_CONNECTION_FAILED);
+      wifiSelectionCancelled();
     else
       startBrowse();
   });
 }
+
+void CatalogActivity::wifiSelectionCancelled() { fail(StrId::STR_CONNECTION_FAILED); }
 
 void CatalogActivity::launchSearch() {
   auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH));

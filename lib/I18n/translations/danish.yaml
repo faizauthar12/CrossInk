@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Venter på godkendelse..."
 STR_PLUGIN_AUTH_FAILED: "Login mislykkedes eller udløb"
 STR_PLUGIN_WEB_ONLY: "Plugin kun til web"
 STR_DOWNLOAD_COMPLETE: "Download fuldført"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Find og opdater plugins"

@@ -13,6 +13,10 @@ that require those features need a later integration.
 
 ## Installation and discovery
 
+Enable **Settings → System → Plugins**, then open **Home → Plugins**. Clean installations start disabled. Upgrading with existing plugin folders enables plugins automatically; disabling leaves their files intact.
+
+The optional **Plugin Hub** entry offers Download, Hide, and Cancel. Download installs the current Hub using the same recoverable bundle transaction as other plugin installs. Hide removes only this entry; enabling Plugins again restores it. Sideloaded plugins do not require the Hub. Manual downloads are available from [Plugin Hub releases](https://github.com/crosspoint-reader/crosspoint-plugin-hub/releases).
+
 Copy a plugin folder onto the SD card under one of these roots, in priority order:
 
 1. `/.crosspoint/plugins/<name>`
@@ -30,8 +34,7 @@ on the reader, join a network, and visit the reader's web portal from a browser.
 The plugin appears on the matching Settings or Files page.
 
 A device catalog contains `device.json`. Open **Plugins** on Home in any theme
-(shown when plugins are installed), or **Settings → System → Plugins** to select
-it. OPDS Browser is available under **Home → File Transfer**. Browser-only
+(shown whenever Plugins is enabled) to select it. OPDS Browser is available under **Home → File Transfer**. Browser-only
 and background-only manifests can appear in this list, but do not open a device
 catalog. Read their setup instructions in the browser or on your computer.
 
@@ -161,3 +164,11 @@ poll `/api/plugin-jobs/status?id=<id>`. Jobs run only while a browser hosts the
 plugin on Files, Settings, or `/plugins-run`. The device has six job slots.
 Running claims have leases; a lost browser may cause an action to run again, so
 actions should tolerate retries. Jobs are not persisted across firmware restart.
+
+## Dynamic catalogs and compatibility
+
+`browse.lists_url` can return an object containing a `lists` array with `title`, `url`, and optional `body`. The response is limited to 16 KiB and the first 16 usable lists. Each list can include a `notice` with `title`, `message`, `confirm`, and `cancel`; the notice must be accepted before browsing.
+
+Catalog requests support `{firmware_family}`, `{firmware_version}`, `{plugin_api}`, and `{plugin_capabilities}`. This integration advertises the `crosspoint` catalog family, the CrossInk version, API 1, and `catalog.lists`, `catalog.notices`, `catalog.bundle_install`, `catalog.version_tracking`, and `catalog.compatibility`. It does not advertise `catalog.item_details`; selecting a downloadable item retains the existing download flow.
+
+`browse.compatibility` can map `firmware_family`, `plugin_api_min`, and `requires` to JSON row fields. Missing restrictions allow a row; supplied family/API/capability restrictions must match. Filtering keeps the server's original pagination lookahead. Completed book downloads through catalogs or browser plugin APIs mark the Library for refresh. Bundles updating an existing plugin reuse its original root and preserve its configuration.

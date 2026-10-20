@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Esperant autorització..."
 STR_PLUGIN_AUTH_FAILED: "Inici de sessió fallit o caducat"
 STR_PLUGIN_WEB_ONLY: "Connector només web"
 STR_DOWNLOAD_COMPLETE: "Baixada completada"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Descobrir i actualitzar connectors"

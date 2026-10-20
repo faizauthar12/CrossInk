@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "activities/CatalogActivity.h"
+#include "components/OptionPopup.h"
 #include "network/HttpDownloader.h"
 #include "util/PluginHttp.h"
 #include "util/PluginLocations.h"
@@ -67,13 +68,23 @@ class PluginCatalogActivity final : public CatalogActivity {
     std::string titlePath, authorPath, idPath, urlPath;
     // Compare this item field against the installed manifest version for badges.
     std::string versionPath;
+    // Optional catalog-entry compatibility fields. Empty paths mean no
+    // restriction; entries that omit the mapped values remain visible.
+    std::string compatFamilyPath, compatApiMinPath, compatRequiresPath;
     bool tracksInstalls() const { return !versionPath.empty(); }
+    bool filtersCompatibility() const {
+      return !compatFamilyPath.empty() || !compatApiMinPath.empty() || !compatRequiresPath.empty();
+    }
     int pageSize = 8;
     // Named JSON views override the browse URL/body; Back returns to their picker.
     struct BrowseList {
       std::string title, url, body;
+      std::string noticeTitle, noticeMessage, noticeConfirm, noticeCancel;
+      bool hasNotice() const { return !noticeMessage.empty(); }
     };
     std::vector<BrowseList> browseLists;
+    // Optional remote index that supplies the named JSON views dynamically.
+    std::string browseListsUrl;
     // JSON search overrides URL/body independently; empty fields reuse browse.
     std::string searchUrl, searchBody;
     bool hasSearch() const { return (!searchUrl.empty() || !searchBody.empty()) && browseFormat != "xml"; }
@@ -121,13 +132,17 @@ class PluginCatalogActivity final : public CatalogActivity {
   std::string catalogTitle;
   Manifest manifest;
   std::vector<PluginRef> installedPlugins;
-  int pickerReturnRow = 0;  // picker row to reselect after leaving a catalog
   // Fixed per-response storage avoids vector growth retaining two row arrays.
   // Heap allocation is checked; XML keeps up to the SDK's 200-row ceiling.
   std::unique_ptr<Item[]> items;
   size_t itemCount = 0;
   bool allocateItems(size_t capacity);
   void clearItems();
+  bool pluginHubAvailable = false;
+  bool showPluginHubInstallRow = false;
+  bool ignoreHubInstallerBackRelease = false;
+  OptionPopup pluginHubPopup;
+  std::string pickerReturnName;  // plugin identity to reselect after leaving a catalog
   // Row buffer over items/browseLists plus the synthetic pager rows; rebuilt
   // lazily on the render task whenever rowsDirty (items or state changed).
   std::vector<freeink::ui::ListItem> rowItems;
@@ -160,7 +175,9 @@ class PluginCatalogActivity final : public CatalogActivity {
   void resetBrowse();
   // JSON catalog with named lists and none picked yet.
   bool wantsListPicker() const;
+  void openList(int index);
   bool loadManifest();
+  bool loadBrowseListIndex();
   bool loadToken();
   void loadConfig();
   bool saveToken(const std::string& value);
@@ -180,6 +197,7 @@ class PluginCatalogActivity final : public CatalogActivity {
   int listCount() const override { return rowCount(); }
   // Row dispatch: pager rows page, picker rows pick, item rows open/download.
   void activateIndex(int index) override;
+  void render(RenderLock&& lock) override;
   void buildScreen(UiScreen& screen) override;
   bool handleCustomInput() override;
   void onBackButton() override;

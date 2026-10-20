@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Рұқсат күтілуде..."
 STR_PLUGIN_AUTH_FAILED: "Кіру сәтсіз немесе мерзімі аяқталды"
 STR_PLUGIN_WEB_ONLY: "Тек веб-плагин"
 STR_DOWNLOAD_COMPLETE: "Жүктеу аяқталды"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Плагиндерді табу және жаңарту"

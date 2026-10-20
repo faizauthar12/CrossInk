@@ -812,7 +812,9 @@ TEST_P(HttpDownloaderTest, FeedInFlightCancellationIsNotConnectivityFailure) {
       "https://example.com/feed", [](const uint8_t*, size_t) { return true; }, nullptr, "", "", options, &diagnostic);
   EXPECT_EQ(result, HttpDownloader::ABORTED);
   EXPECT_TRUE(diagnostic.attempted);
-  EXPECT_EQ(classifyFeedFailure(diagnostic, result == HttpDownloader::HTTP_ERROR), OpdsFeedError::Other);
+  EXPECT_EQ(
+      classifyFeedFailure(diagnostic, result == HttpDownloader::HTTP_ERROR || result == HttpDownloader::UNAUTHORIZED),
+      OpdsFeedError::Other);
 }
 
 TEST_P(HttpDownloaderTest, FeedNegativeGetRetainsHeadersAndDoesNotReportConnectivity) {
@@ -832,7 +834,9 @@ TEST_P(HttpDownloaderTest, FeedNegativeGetRetainsHeadersAndDoesNotReportConnecti
   result = HttpDownloader::streamUrl(
       "https://example.com/feed", [](const uint8_t*, size_t) { return false; }, nullptr, "", "", options, &diagnostic);
   EXPECT_TRUE(diagnostic.callbackRejected);
-  EXPECT_EQ(classifyFeedFailure(diagnostic, result == HttpDownloader::HTTP_ERROR), OpdsFeedError::Other);
+  EXPECT_EQ(
+      classifyFeedFailure(diagnostic, result == HttpDownloader::HTTP_ERROR || result == HttpDownloader::UNAUTHORIZED),
+      OpdsFeedError::Other);
 }
 
 TEST_P(HttpDownloaderTest, MalformedAndUnfinishedFeedsAreNotConnectivityFailures) {
@@ -852,7 +856,9 @@ TEST_P(HttpDownloaderTest, MalformedAndUnfinishedFeedsAreNotConnectivityFailures
     EXPECT_FALSE(parser);
     EXPECT_EQ(parser.getErrorReason(), OpdsParserError::XML_PARSE);
     EXPECT_EQ(diagnostic.status, 200);
-    EXPECT_EQ(classifyFeedFailure(diagnostic, result == HttpDownloader::HTTP_ERROR), OpdsFeedError::Other);
+    EXPECT_EQ(
+        classifyFeedFailure(diagnostic, result == HttpDownloader::HTTP_ERROR || result == HttpDownloader::UNAUTHORIZED),
+        OpdsFeedError::Other);
   }
 }
 TEST_P(HttpDownloaderTest, PluginHeadersStayOnTheOriginalOrigin) {

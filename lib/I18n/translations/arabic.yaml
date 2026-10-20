@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "بانتظار التفويض..."
 STR_PLUGIN_AUTH_FAILED: "فشل تسجيل الدخول أو انتهت صلاحيته"
 STR_PLUGIN_WEB_ONLY: "إضافة للويب فقط"
 STR_DOWNLOAD_COMPLETE: "اكتمل التنزيل"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "اكتشاف الإضافات وتحديثها"

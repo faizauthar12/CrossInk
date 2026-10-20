@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Ожидание авторизации..."
 STR_PLUGIN_AUTH_FAILED: "Вход не удался или истёк срок"
 STR_PLUGIN_WEB_ONLY: "Только веб-плагин"
 STR_DOWNLOAD_COMPLETE: "Загрузка завершена"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Поиск и обновление плагинов"

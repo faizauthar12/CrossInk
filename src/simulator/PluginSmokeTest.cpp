@@ -3,6 +3,7 @@
 
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
@@ -53,7 +54,7 @@ struct PluginCatalogSmokeTest {
     activity.enterPluginPicker();
     for (size_t i = 0; i < activity.installedPlugins.size(); ++i) {
       if (activity.installedPlugins[i].name == name) {
-        activity.activateIndex(i);
+        activity.activateIndex(i + (activity.showPluginHubInstallRow ? 1 : 0));
         return;
       }
     }
@@ -123,7 +124,7 @@ struct PluginCatalogSmokeTest {
           SETTINGS.uiTheme = originalTheme;
           UITheme::getInstance().reload();
           menu.ui.reset();
-          menu.selectedIndex = 2;
+          menu.selectedIndex = 0;
         }
         capture(menu, "file-transfer");
         mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Confirm);
@@ -140,7 +141,7 @@ struct PluginCatalogSmokeTest {
           RenderLock lock;
           for (int y = 0; y < renderer.getScreenHeight() && !found; y += 4)
             for (int x = 0; x < renderer.getScreenWidth(); x += 4)
-              if (menu.ui.app.hitPublished(x, y, 1, hit) && hit.value == 2) {
+              if (menu.ui.app.hitPublished(x, y, 1, hit) && hit.value == 0) {
                 found = true;
                 tapX = x;
                 tapY = y;
@@ -180,6 +181,7 @@ struct PluginCatalogSmokeTest {
       return;
     }
     if (phase == -4) {
+      SETTINGS.pluginsEnabled = 1;
       const int theme = homePass / 2;
       if (theme >= CrossPointSettings::UI_THEME_COUNT) {
         RenderLock lock;
@@ -232,7 +234,7 @@ struct PluginCatalogSmokeTest {
               freeink::ui::Interaction hit;
               const bool found =
                   home.coverGridUi
-                      ? (home.coverGridUi->app.hitPublished(x, y, 1, hit) && hit.value == 2)
+                      ? (home.coverGridUi->app.hitPublished(x, y, 1, hit) && hit.value == home.selectorIndex)
                       : (TouchRegistry::getInstance().hitTest(x, y, TouchRegistry::Item, id) && id == target);
               if (found) {
                 tapX = x;
@@ -297,6 +299,16 @@ struct PluginCatalogSmokeTest {
     switch (phase) {
       case 1: {
         capture(activity, "plugins");
+        {
+          RenderLock lock;
+          SETTINGS.pluginsEnabled = 0;
+          require(PluginLocations::scanPlugins().empty(), "disabled plugins discovered");
+          require(PluginLocations::findPluginDir("json").empty(), "disabled plugin resolved");
+          require(PluginLocations::anyPluginInstalledOnDisk(), "migration cannot see disabled plugins");
+          SETTINGS.pluginsEnabled = 1;
+          library::restoreLibraryIndexAfterSleep();
+          require(!library::libraryIndexNeedsRefresh(), "Library fixture not clean");
+        }
         select(activity, "json");
         ++phase;
         break;
@@ -366,6 +378,7 @@ struct PluginCatalogSmokeTest {
       case 3: {
         if (state != CatalogActivity::State::DONE) return;
         require(Storage.exists("/Books/Fixture.txt"), "download missing");
+        require(library::libraryIndexNeedsRefresh(), "plugin download did not refresh Library");
         capture(activity, "download-complete");
         select(activity, "xml");
         ++phase;
@@ -398,6 +411,7 @@ struct PluginCatalogSmokeTest {
         require(Storage.exists("/plugins/installed/.config.json"), "bundle lost hidden config");
         require(Storage.exists("/plugins/installed/.secrets/value"), "bundle lost hidden folder");
         require(Storage.exists("/plugins/installed/plugin.js"), "bundle file missing");
+        require(!Storage.exists("/.crosspoint/plugins/installed"), "bundle duplicated plugin in a different root");
         require(!Storage.exists("/.crosspoint/plugin-install.txt"), "bundle journal not cleaned");
         require(!Storage.exists("/plugins/.installed.plugin-old"), "bundle backup not cleaned");
         if (++bundleUpdates < 2) {

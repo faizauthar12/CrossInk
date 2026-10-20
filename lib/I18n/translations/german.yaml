@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Warte auf Freigabe..."
 STR_PLUGIN_AUTH_FAILED: "Anmeldung fehlgeschlagen oder abgelaufen"
 STR_PLUGIN_WEB_ONLY: "Nur Web-Plugin"
 STR_DOWNLOAD_COMPLETE: "Download abgeschlossen"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Plugins finden und aktualisieren"

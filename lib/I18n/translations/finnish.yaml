@@ -1007,3 +1007,6 @@ STR_PLUGIN_AUTH_WAITING: "Odotetaan valtuutusta..."
 STR_PLUGIN_AUTH_FAILED: "Kirjautuminen epäonnistui tai vanheni"
 STR_PLUGIN_WEB_ONLY: "Vain verkkolisäosa"
 STR_DOWNLOAD_COMPLETE: "Lataus valmis"
+
+STR_PLUGIN_HUB: "Plugin Hub"
+STR_PLUGIN_HUB_DESCRIPTION: "Etsi ja päivitä lisäosia"
