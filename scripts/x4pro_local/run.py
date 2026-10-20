@@ -19,7 +19,7 @@ import threading
 import time
 import zipfile
 
-from core import ROOT, PIN, Budget, LogProfileError, Native, Terminated, command, compose, fixture, ignore_termination_signals, install_signal_handlers, installed_defaults, require_debug_image, sha, stop_owned_group, write_json
+from core import network_option, ROOT, PIN, Budget, LogProfileError, Native, Terminated, command, compose, fixture, ignore_termination_signals, install_signal_handlers, installed_defaults, require_debug_image, sha, stop_owned_group, write_json
 
 
 def prepare(args):
@@ -36,12 +36,12 @@ def prepare(args):
             if record["name"] != "sd-assets" or record["sha256"] != sha(seed):
                 raise ValueError("Acceptance replay needs an unchanged named sd-assets seed")
     else:
-        seed = fixture(run / "fixture", args.fixture)
+        seed = fixture(run / "fixture", args.fixture, network=getattr(args, "network", False))
     shutil.copyfile(seed, run / "sd.img")
     manifest = dict(schema=1, pin=PIN, firmware=firmware,
         fixture=dict(name=args.fixture if not args.sd else "explicit-input", path=str(seed), sha256=sha(seed)),
         device=getattr(args, "device", "x4-pro"), mode=args.mode, backend=args.backend, timing="model shift=2,sleep=on; browser turbo=0",
-        network="disabled", harness_source=dict(path=str(ROOT),
+        network=network_option(getattr(args, "network", False), getattr(args, "http_port", None)), harness_source=dict(path=str(ROOT),
             commit=command(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.decode().strip(),
             status=command(["git", "status", "--short"], cwd=ROOT).stdout.decode()),
         timeouts=dict(readiness=args.ready_timeout, action=args.action_timeout, overall=args.overall_timeout),
@@ -126,7 +126,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("manual", "test"))
     parser.add_argument("--device", choices=("x4-pro", "x3", "x4"), default="x4-pro")
-    parser.add_argument("--release-runtime", action="store_true", help="Use pinned eink-qemu 0.5.0 native runtime")
+    parser.add_argument("--release-runtime", action="store_true", help="Use the pinned native release (0.8.1 with --network, otherwise 0.5.0)")
+    parser.add_argument("--network", action="store_true", help="Enable native emulated Wi-Fi through host NAT")
+    parser.add_argument("--http-port", type=int, help="Forward localhost port to device HTTP (requires --network)")
     parser.add_argument("--headless", action="store_true", help="Native diagnostic run without a window")
     parser.add_argument("--backend", choices=("native", "browser"), default="native")
     parser.add_argument("--runtime", help="Pinned qemu directory; defaults to installed versioned cache")
@@ -142,15 +144,18 @@ def main():
     parser.add_argument("--cdp-port", type=int, help="Optional private loopback CDP port, choose per run")
     args = parser.parse_args()
     profile = None
-    if args.release_runtime:
+    if args.release_runtime or args.network:
         from launch import device_profile, runtime_path
-        profile = device_profile(args.device)
+        profile = device_profile(args.device, args.network)
         if args.runtime is None:
-            args.runtime = str(runtime_path(args.device))
+            args.runtime = str(runtime_path(args.device, args.network))
     elif args.device != "x4-pro":
         parser.error("X3/X4 require --release-runtime")
     if (args.device != "x4-pro" or args.release_runtime) and (args.mode != "manual" or args.backend != "native"):
         parser.error("Release runtime supports native manual runs; legacy acceptance/browser workflows retain their original pin")
+    network_option(args.network, args.http_port)
+    if args.network and (args.backend != "native" or args.mode != "manual"):
+        parser.error("Networking requires a native manual run")
     if args.runtime is None:
         args.runtime = defaults["runtime"]
     if args.build_dir is None:
@@ -176,7 +181,7 @@ def main():
             browser(args, run)
         else:
             require_debug_image(manifest["firmware"])
-            native = Native(args.runtime, run, args.overall_timeout, args.action_timeout, args.mode == "manual" and not args.headless, profile=profile)
+            native = Native(args.runtime, run, args.overall_timeout, args.action_timeout, args.mode == "manual" and not args.headless, profile=profile, network=args.network, http_port=args.http_port)
             if profile:
                 manifest.update(pin=profile, timing=f"model shift={profile['shift']},sleep=on")
             native.start()

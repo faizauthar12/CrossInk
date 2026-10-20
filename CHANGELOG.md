@@ -45,6 +45,8 @@
 
 - Protected EPUB downloads from plugins, with device-bound keys and loan expiry checks.
 
+- Enable Wi-Fi networking in the actual device emulator for plugin downloads and network testing.
+
 ### Fixed
 
 - Refresh the Library after plugin book downloads and keep long plugin descriptions readable.

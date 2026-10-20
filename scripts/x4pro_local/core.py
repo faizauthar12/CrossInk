@@ -191,13 +191,17 @@ def synthetic_epub(path):
             archive.writestr(info, data)
 
 
-def fixture(destination, name):
+def fixture(destination, name, network=False):
     if name not in ("blank-home", "reading", "sd-assets"):
         raise ValueError("Unknown disposable fixture")
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=False)
     tree = destination / "files"
     tree.mkdir()
+    if network:
+        wifi = tree / ".crosspoint/wifi.json"
+        wifi.parent.mkdir(parents=True, exist_ok=True)
+        write_json(wifi, dict(lastConnectedSsid="PICSimLabWifi", credentials=[dict(ssid="PICSimLabWifi", password="")]))
     if name != "blank-home":
         synthetic_epub(tree / "TestBook.epub")
     if name == "sd-assets":
@@ -294,9 +298,21 @@ class QMP:
         self.sock.close()
 
 
+def network_option(enabled=False, http_port=None):
+    if http_port is not None and (not enabled or not 1 <= http_port <= 65535):
+        raise ValueError("HTTP forwarding requires networking and a port from 1 to 65535")
+    if not enabled:
+        return "none"
+    value = "user,model=esp32_wifi"
+    if http_port is not None:
+        value += f",hostfwd=tcp:127.0.0.1:{http_port}-:80"
+    return value
+
+
 class Native:
-    def __init__(self, runtime, run, overall=300, action=30, display=False, profile=None):
+    def __init__(self, runtime, run, overall=300, action=30, display=False, profile=None, network=False, http_port=None):
         self.profile = profile
+        self.network_option = network_option(network, http_port)
         self.run, self.runtime = Path(run), Path(runtime).resolve()
         self.budget, self.action = Budget(overall), action
         self.proc = self.qmp = None
@@ -319,7 +335,7 @@ class Native:
         argv = [str(binary), "-L", str(self.runtime / "share/qemu"), "-machine", profile["machine"],
                 "-icount", f"shift={profile['shift']},sleep=on", "-display", "sdl,show-cursor=on" if self.display else "none",
                 "-serial", "null", "-drive", f"file={self.run / 'flash.bin'},if=mtd,format=raw",
-                "-drive", f"file={self.run / 'sd.img'},if=sd,format=raw", "-nic", "none",
+                "-drive", f"file={self.run / 'sd.img'},if=sd,format=raw", "-nic", self.network_option,
                 "-chardev", f"file,id=cdc,path={self.run / 'serial.log'}",
                 "-global", "driver=misc.esp32s3.usb_serial_jtag,property=chardev,value=cdc",
                 "-qmp", f"unix:{sock},server=on,wait=off"]

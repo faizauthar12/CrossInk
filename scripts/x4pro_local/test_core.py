@@ -117,7 +117,7 @@ from pathlib import Path
 sys.path.insert(0, sys.argv.pop(1))
 import core, run
 core.PIN['native_macos_arm64']['binary_sha256'] = core.sha(Path(sys.argv[sys.argv.index('--runtime')+1])/'bin/qemu-system-xtensa')
-def seed(destination, name):
+def seed(destination, name, network=False):
     destination.mkdir(parents=True)
     image=destination/'sd.img'; image.write_bytes(b'\\0'*4096)
     core.write_json(destination/'fixture.json',dict(name=name,sha256=core.sha(image)))

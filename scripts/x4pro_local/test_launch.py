@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 import launch
-from core import Native, compose
+from core import Native, compose, network_option
 import test_core
 
 
@@ -29,6 +29,15 @@ class DeviceComposition(unittest.TestCase):
 
 
 class Launcher(unittest.TestCase):
+    def test_network_uses_runtime_with_wifi_and_dma_bounds_fixes(self):
+        for device in launch.DEVICES:
+            offline = launch.device_profile(device)
+            online = launch.device_profile(device, network=True)
+            self.assertEqual(offline['release'], '0.5.0')
+            self.assertEqual(online['release'], '0.8.1')
+            self.assertNotEqual(offline['binary_sha256'], online['binary_sha256'])
+            self.assertIn('/0.8.1/', str(launch.runtime_path(device, network=True)))
+
     def test_devices_use_matching_chip_environment_and_machine(self):
         for device, target, env in [('x4-pro', 'xtensa', 'x4-pro-debug'),
                                     ('x3', 'riscv32', 'debug'), ('x4', 'riscv32', 'debug')]:
@@ -68,7 +77,17 @@ class Launcher(unittest.TestCase):
                 with patch.object(native, 'shot'), self.assertRaisesRegex(AssertionError, 'board'):
                     native.ready(timeout=1)
 
-    def exercise(self, exit_code):
+    def test_network_defaults_and_localhost_forwarding(self):
+        self.assertEqual(network_option(), "none")
+        self.assertEqual(network_option(True), "user,model=esp32_wifi")
+        self.assertEqual(network_option(True, 18080),
+                         "user,model=esp32_wifi,hostfwd=tcp:127.0.0.1:18080-:80")
+        for enabled, port in [(False, 18080), (True, 0), (True, 65536)]:
+            with self.assertRaises(ValueError):
+                network_option(enabled, port)
+
+    def exercise(self, exit_code, extra=None):
+        binary_hash = launch.device_profile('x4-pro', network='--network' in (extra or []))['binary_sha256']
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'freeink-sdk/libs/hardware').mkdir(parents=True)
@@ -78,7 +97,7 @@ class Launcher(unittest.TestCase):
                  patch.object(launch.platform, 'machine', return_value='arm64'), \
                  patch.object(launch.Path, 'home', return_value=root), \
                  patch.object(launch.Path, 'is_file', return_value=True), \
-                 patch.object(launch, 'sha', return_value=launch.BINARIES['xtensa']), \
+                 patch.object(launch, 'sha', return_value=binary_hash), \
                  patch.object(launch.shutil, 'which', return_value='/tool'), \
                  patch.object(launch, 'source_root', return_value=root), \
                  patch.object(launch, 'initialize_dependencies'), \
@@ -86,7 +105,7 @@ class Launcher(unittest.TestCase):
                  patch.object(launch, 'stop_owned_group') as stop, \
                  patch.object(launch.subprocess, 'Popen', return_value=fake) as build, \
                  patch.object(launch.os, 'execv') as execute:
-                result = launch.main(['x4-pro', '--source', str(root)])
+                result = launch.main(['x4-pro', '--source', str(root)] + (extra or []))
                 argv = build.call_args.args[0]
                 self.assertEqual(argv[argv.index('--source') + 1], str(root))
                 self.assertEqual(argv[argv.index('--env') + 1], 'x4-pro-debug')
@@ -97,10 +116,16 @@ class Launcher(unittest.TestCase):
                     self.assertEqual(result, exit_code)
                 else:
                     runtime_argv = execute.call_args.args[1]
+                    if extra:
+                        self.assertIn("--network", runtime_argv)
+                        self.assertEqual(runtime_argv[runtime_argv.index("--http-port") + 1], "18080")
                     self.assertEqual(runtime_argv[runtime_argv.index('--build-dir') + 1],
                                      argv[argv.index('--output-dir') + 1])
                     self.assertNotEqual(runtime_argv[runtime_argv.index('--build-dir') + 1],
                                         str(root / '.pio/build/x4-pro-debug'))
+
+    def test_network_options_reach_native_runner(self):
+        self.exercise(0, ["--network", "--http-port", "18080"])
 
     def test_build_failure_never_launches_cached_image(self):
         self.exercise(1)

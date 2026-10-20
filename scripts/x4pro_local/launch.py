@@ -12,13 +12,20 @@ import shutil
 import subprocess
 import sys
 
-from core import Terminated, command, sha, install_signal_handlers, stop_owned_group
+from core import network_option, Terminated, command, sha, install_signal_handlers, stop_owned_group
 
 RELEASE = "0.5.0"
 COMMIT = "2c7443b56b7ddf10ffd8ab0124de6f4babdd1db7"
 BINARIES = {
     "xtensa": "2ede2865f2eaca1e23dc2b81c8600ef205f1f06df9d8fb71c17b6797af19c6ed",
     "riscv32": "0005306996f5276d960249db5de99ccad87b6635fe2be7057f6f71c6fd0c8438",
+}
+# Older Wi-Fi/GDMA models can overwrite guest memory during network/crypto work.
+NETWORK_RELEASE = "0.8.1"
+NETWORK_COMMIT = "b19981b3633f7b3a87bd3be8118e2af46de9ebdc"
+NETWORK_BINARIES = {
+    "xtensa": "eda269e520e272bae71945039f97068bbc18b16c8c866fce9e6880530d5f03ec",
+    "riscv32": "b5ccd00b3e31e3cf4449dbe185a0f693374594307ef8efc3b9d8688089ae509f",
 }
 DEVICES = {
     "x4-pro": dict(target="xtensa", environment="x4-pro-debug", machine="x4pro,panel=uc8179", board="xteink_x4_pro", refresh=r"Wait complete:\s+8179_(?:DRF|gray_pre_DRF|gray_split_DRF)"),
@@ -28,16 +35,19 @@ DEVICES = {
 UNSUPPORTED = ("sticky", "x4-classic")
 
 
-def device_profile(device):
+def device_profile(device, network=False):
     if device not in DEVICES:
         raise ValueError(f"{device}: eink-qemu {RELEASE} has no matching hardware model; firmware emulation is unavailable")
     info = DEVICES[device]
-    return dict(info, release=RELEASE, commit=COMMIT, binary="qemu-system-" + info["target"],
-                binary_sha256=BINARIES[info["target"]], shift=0)
+    binaries = NETWORK_BINARIES if network else BINARIES
+    return dict(info, release=NETWORK_RELEASE if network else RELEASE,
+                commit=NETWORK_COMMIT if network else COMMIT, binary="qemu-system-" + info["target"],
+                binary_sha256=binaries[info["target"]], shift=0)
 
 
-def runtime_path(device):
-    return Path.home() / ".cache/crossink/eink-qemu" / RELEASE / DEVICES[device]["target"] / "qemu"
+def runtime_path(device, network=False):
+    release = NETWORK_RELEASE if network else RELEASE
+    return Path.home() / ".cache/crossink/eink-qemu" / release / DEVICES[device]["target"] / "qemu"
 
 
 def source_root(path):
@@ -80,18 +90,21 @@ def main(argv=None):
     parser.add_argument("--ready-timeout", type=float, default=180)
     parser.add_argument("--overall-timeout", type=float, default=3600)
     parser.add_argument("--headless", action="store_true", help="Diagnostic run without a window")
+    parser.add_argument("--network", action="store_true", help="Enable emulated Wi-Fi through host NAT")
+    parser.add_argument("--http-port", type=int, help="Forward a localhost port to the device web server (requires --network)")
     args = parser.parse_args(argv)
+    network_option(args.network, args.http_port)
     if args.list_devices:
         print("Firmware emulation: " + ", ".join(DEVICES))
         print("No hardware model: " + ", ".join(UNSUPPORTED))
         return 0
     if any(not math.isfinite(t) or t <= 0 for t in (args.ready_timeout, args.overall_timeout)):
         parser.error("Timeouts must be finite and positive")
-    profile = device_profile(args.device)
+    profile = device_profile(args.device, args.network)
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise ValueError("This launcher currently pins macOS Apple Silicon emulator packages")
     source = selected_source(args.source)
-    runtime = runtime_path(args.device)
+    runtime = runtime_path(args.device, args.network)
     binary = runtime / "bin" / profile["binary"]
     if not binary.is_file() or sha(binary) != profile["binary_sha256"]:
         raise ValueError(f"Missing or changed pinned emulator: {binary}. See docs/x4pro-local-testing.md for installation")
@@ -127,6 +140,10 @@ def main(argv=None):
     argv = [sys.executable, str(scripts / "run.py"), "manual", "--device", args.device,
             "--release-runtime", "--build-dir", str(build), "--ready-timeout", str(args.ready_timeout),
             "--overall-timeout", str(args.overall_timeout), "--fixture", "reading"]
+    if args.network:
+        argv.append("--network")
+    if args.http_port is not None:
+        argv.extend(["--http-port", str(args.http_port)])
     if args.headless:
         argv.append("--headless")
     os.execv(sys.executable, argv)

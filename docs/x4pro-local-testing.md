@@ -25,6 +25,34 @@ The launcher prints the selected source and build log before starting.
 `bin/crossink-emulator.command` also runs from Terminal or Finder; without the
 installed short command, use `python3 scripts/x4pro_local/launch.py`.
 
+Enable actual emulated Wi-Fi and optional device web-server access with:
+
+```sh
+python3 scripts/x4pro_local/launch.py --network --http-port 18080
+```
+
+This selects pinned eink-qemu 0.8.1 with its `esp32_wifi` adapter and user-mode NAT. Fresh
+fixtures include the open `PICSimLabWifi` network; explicit `--sd` seeds keep
+their own credentials. The firmware obtains `10.0.2.15` through DHCP and uses
+its normal DNS, TCP and TLS stack. Host fixture services are reachable from
+the device at `10.0.2.2`. Open File Transfer on the device to use
+`http://127.0.0.1:18080`; forwarding binds only to localhost. Omit `--http-port`
+for outbound access alone. Network mode is limited to native manual runs, so
+the existing offline acceptance suite keeps its deterministic inputs. The run
+manifest and launch log record the chosen network configuration. This exercises
+firmware network flows, but does not model real radio reliability or throughput.
+Use the checkout's Python entry point when an older installed short command
+still points to another tooling checkout.
+
+Do not enable networking on the offline 0.5.0 pin: its Wi-Fi receive and GDMA
+models can overwrite guest memory. The network pin includes the upstream
+[buffer and channel fixes](https://github.com/serialx/eink-qemu/commit/b05003dc3a0585c1422533d0aff3e2336fa34684).
+
+The X4 Pro emulator can stop at the ROM boot log after a firmware
+software restart (for example, entering or leaving File Transfer). A QMP
+`system_reset` resumes boot while retaining the firmware's restart target.
+This is an emulator limitation; record the reset in network validation results.
+
 These are actual firmware emulators, with no SDL application-simulator fallback:
 
 | Device | Firmware environment | Emulator machine |
@@ -59,7 +87,7 @@ A failed or changed-during-build source stops the launcher. A successful build
 copies its three firmware binaries and source/hash record into a private build
 directory **while still holding the build lock**. The emulator then receives
 that copy explicitly, never the saved default firmware. It uses fresh flash and
-a disposable SD card with a synthetic test EPUB; Wi-Fi is disabled. Runs and
+a disposable SD card with a synthetic test EPUB; Wi-Fi is disabled by default. Runs and
 build copies remain under `~/.local/state/crossink/x4pro-runs/` for inspection.
 Each run retains roughly 80 MiB of flash/SD evidence plus build inputs. Old run
 and build directories can be removed when no longer needed. Ctrl-C stops the
@@ -78,6 +106,14 @@ and extract each archive's `qemu/` directory beneath its target directory:
 | --- | --- |
 | `eink-qemu-xtensa-softmmu-0.5.0-aarch64-apple-darwin.tar.xz` | `ac6c03263be582205d9d900c6d53ff02e6ed3302bf5ab57a02551c906b328e7b` |
 | `eink-qemu-riscv32-softmmu-0.5.0-aarch64-apple-darwin.tar.xz` | `b2b172dc52ff387e49fa75b99a263ee3273f8177901af4a0c190edc1fd5624af` |
+
+Network runs use separate [0.8.1 release assets](https://github.com/serialx/eink-qemu/releases/tag/0.8.1),
+installed under `~/.cache/crossink/eink-qemu/0.8.1/{xtensa,riscv32}/qemu/`:
+
+| Apple Silicon archive | SHA-256 |
+| --- | --- |
+| `eink-qemu-xtensa-softmmu-0.8.1-aarch64-apple-darwin.tar.xz` | `8bfea8018492a68d7a57b08b5478b4baf2bcb43ba693179168ea26483c0292c3` |
+| `eink-qemu-riscv32-softmmu-0.8.1-aarch64-apple-darwin.tar.xz` | `18a4740e51eb782a44aff7fb295a02c508ac2bc41b6b85da6cc2127d018ab125` |
 
 The launcher additionally verifies each executable against its pinned digest in
 `launch.py`. It requires the existing Python, mtools/dosfstools, Homebrew runtime
@@ -274,11 +310,11 @@ Installation and flash-persistence assertions therefore run natively.
 Timing is the emulator's model timing, not a measured hardware performance result.
 
 The WASM HTTP adapter accepts untrusted guest TLS and strips Authorization.
-Keep it offline here. Future real HTTPS tests should use native QEMU's Wi-Fi/NAT
-with separate explicit authorization; retain CrossInk certificate validation.
-This workflow uses `-nic none`, adds no port forwards and changes no network,
-certificate, browser security or system permissions. Never upload private
-firmware to the hosted emulator.
+Keep browser runs offline here. Use native QEMU's opt-in Wi-Fi/NAT for HTTPS
+tests; it retains CrossInk certificate validation. The default offline workflow
+uses `-nic none` and adds no port forwards. Neither mode changes certificate,
+browser security or system permissions. Never upload private firmware to the
+hosted emulator.
 
 ## One agent test command
 
