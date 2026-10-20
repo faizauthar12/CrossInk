@@ -7,8 +7,19 @@
 #include <Logging.h>
 #ifndef SIMULATOR
 #include <Preferences.h>
-#endif
+// Suppress ESP-IDF's legacy inline aliases so the core-locked handoff below
+// can call the raw, synchronous lwIP sntp_stop rather than its queued wrapper.
+#define ESP_NETIF_COMPONENT_BUILD
+#include <esp_netif.h>
+#include <esp_netif_sntp.h>
 #include <esp_sntp.h>
+#undef SNTP_OPMODE_POLL
+#include <lwip/apps/sntp.h>
+#include <lwip/dns.h>
+#undef ESP_NETIF_COMPONENT_BUILD
+#else
+#include <esp_sntp.h>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +53,9 @@ constexpr const char* PREFS_KEY = "floor";
 // cannot reopen an expired loan. Updated from the SNTP callback's lwIP task as
 // well as the main task; 64-bit atomics are not lock-free on the C3.
 std::mutex persistedFloorLock;
+// Background sync and foreground RTC/stats sync share the one lwIP SNTP client.
+// Separate from the floor lock: the lwIP callback must persist time while we wait.
+std::mutex syncLock;
 int64_t ramFloor = 0;
 portMUX_TYPE ramFloorLock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -79,10 +93,24 @@ void writeFloor(int64_t) {}
 // SNTP sync callback (lwIP task context; Preferences/NVS is mutex-guarded).
 void onTimeSynced(struct timeval*) { note(); }
 
+#ifndef SIMULATOR
+esp_err_t clearDnsCache(void*) {
+  dns_clear_cache();
+  return ESP_OK;
+}
+
+esp_err_t stopBackgroundSntp(void*) {
+  // A pending SNTP DNS callback must run under the lwIP core lock before stop.
+  dns_clear_cache();
+  sntp_stop();
+  return ESP_OK;
+}
+#endif
+
 void configureSntp() {
   sntp_set_time_sync_notification_cb(&onTimeSynced);
   // SNTP uses UTC epochs regardless of the display timezone. Copy TZ before
-  // configTzTime replaces the environment entry, as HalClock::syncFromNTP does.
+  // configTzTime replaces the environment entry.
   const char* currentTz = getenv("TZ");
   char timezone[64];
   snprintf(timezone, sizeof(timezone), "%s", currentTz ? currentTz : "UTC0");
@@ -143,12 +171,41 @@ void adopt(const int64_t epoch) {
 }
 
 void startSync() {
+  std::lock_guard<std::mutex> lock(syncLock);
   sntp_set_time_sync_notification_cb(&onTimeSynced);
   if (esp_sntp_enabled()) return;  // running; the sync callback handles the rest
   configureSntp();
 }
 
 bool syncNow(const uint32_t timeoutMs) {
+  std::lock_guard<std::mutex> lock(syncLock);
+#ifndef SIMULATOR
+  // esp-netif deinit cannot stop a client started by Arduino configTzTime.
+  // Explicitly hand off the background client before creating the wait service.
+  const esp_err_t stopResult = esp_netif_tcpip_exec(stopBackgroundSntp, nullptr);
+  if (stopResult != ESP_OK) {
+    LOG_ERR("TIME", "Failed to stop background NTP: %s", esp_err_to_name(stopResult));
+    return false;
+  }
+  esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+  config.sync_cb = &onTimeSynced;
+  const esp_err_t initResult = esp_netif_sntp_init(&config);
+  if (initResult != ESP_OK) {
+    LOG_ERR("TIME", "Failed to start NTP sync: %s", esp_err_to_name(initResult));
+    return false;
+  }
+  const esp_err_t syncResult = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(timeoutMs));
+  // Retain HalClock's timeout cleanup: a later hostname lookup must not run a
+  // pending SNTP DNS callback from an application task while clearing the cache.
+  const esp_err_t clearResult = esp_netif_tcpip_exec(clearDnsCache, nullptr);
+  esp_netif_sntp_deinit();
+  if (clearResult != ESP_OK || syncResult != ESP_OK) {
+    LOG_ERR("TIME", "NTP sync failed: sync=%s DNS=%s", esp_err_to_name(syncResult), esp_err_to_name(clearResult));
+    return false;
+  }
+  note();
+  return true;
+#else
   // configureSntp() (configTzTime) restarts SNTP if already running.
   configureSntp();
   const unsigned long deadline = millis() + timeoutMs;
@@ -158,6 +215,7 @@ bool syncNow(const uint32_t timeoutMs) {
   const bool synced = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
   if (synced) note();
   return synced;
+#endif
 }
 
 int64_t trustedNow() {

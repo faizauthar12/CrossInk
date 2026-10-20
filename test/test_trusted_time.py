@@ -12,6 +12,7 @@ STUBS = {
 #pragma once
 #include <cstdlib>
 #include <ctime>
+#include <cassert>
 #include <sys/time.h>
 inline int simulatedSetTime(const timeval*, const void*) { return 0; }
 #define settimeofday simulatedSetTime
@@ -23,6 +24,9 @@ inline bool enabled = false;
 inline bool completed = true;
 inline int configurations = 0;
 inline unsigned long ticks = 0;
+inline bool coreLocked = false;
+inline int dnsClears = 0;
+#define pdMS_TO_TICKS(ms) (ms)
 inline unsigned long millis() { return ticks; }
 inline void delay(unsigned long ms) { ticks += ms; }
 inline void configTzTime(const char* tz, const char*) {
@@ -45,7 +49,54 @@ struct Preferences {
   void end() {}
 };
 ''',
-    "Logging.h": '#pragma once\n#define LOG_DBG(...) ((void)0)\n',
+    "Logging.h": '#pragma once\n#define LOG_DBG(...) ((void)0)\n#define LOG_ERR(...) ((void)0)\n',
+    "esp_netif.h": r'''
+#pragma once
+#include <Arduino.h>
+using esp_err_t = int;
+constexpr esp_err_t ESP_OK = 0;
+inline const char* esp_err_to_name(esp_err_t) { return "test"; }
+inline esp_err_t esp_netif_tcpip_exec(esp_err_t (*fn)(void*), void* arg) {
+  coreLocked = true;
+  auto result = fn(arg);
+  coreLocked = false;
+  return result;
+}
+''',
+    "esp_netif_sntp.h": r'''
+#pragma once
+#include <esp_netif.h>
+#include <esp_sntp.h>
+struct esp_sntp_config_t { void (*sync_cb)(timeval*); };
+#define ESP_NETIF_SNTP_DEFAULT_CONFIG(server) esp_sntp_config_t{nullptr}
+inline bool managed = false;
+inline esp_err_t esp_netif_sntp_init(const esp_sntp_config_t* config) {
+  // Regression: deinit alone does not stop a raw Arduino SNTP client.
+  assert(!enabled);
+  managed = enabled = true;
+  ++configurations;
+  syncCallback = config->sync_cb;
+  return ESP_OK;
+}
+inline esp_err_t esp_netif_sntp_sync_wait(unsigned long ms) {
+  ticks += ms;
+  if (completed) { assert(syncCallback); syncCallback(nullptr); }
+  return completed ? ESP_OK : -1;
+}
+inline void esp_netif_sntp_deinit() {
+  if (managed) { managed = enabled = false; syncCallback = nullptr; }
+}
+''',
+    "lwip/apps/sntp.h": r'''
+#pragma once
+#include <Arduino.h>
+inline void sntp_stop() { assert(coreLocked); enabled = false; }
+''',
+    "lwip/dns.h": r'''
+#pragma once
+#include <Arduino.h>
+inline void dns_clear_cache() { assert(coreLocked); ++dnsClears; }
+''',
     "esp_sntp.h": r'''
 #pragma once
 #include <Arduino.h>
@@ -140,8 +191,10 @@ int main() {
   syncCallback(nullptr);
   assert(trustedtime::syncNow(200));
   assert(configurations == 2 && strcmp(getenv("TZ"), zone) == 0);
+  assert(!enabled && dnsClears == 2);
   completed = false;
   assert(!trustedtime::syncNow(200));
+  assert(!enabled && dnsClears == 4);
   assert(strcmp(getenv("TZ"), zone) == 0);
   unsetenv("TZ");
   enabled = false;
@@ -155,6 +208,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="trusted-time-test-") as directory:
         work = Path(directory)
         for name, content in STUBS.items():
+            (work / name).parent.mkdir(parents=True, exist_ok=True)
             (work / name).write_text(content)
         (work / "check.cpp").write_text(CHECK)
         subprocess.run([

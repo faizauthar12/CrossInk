@@ -1466,7 +1466,10 @@ void PluginCatalogActivity::showItemDetails(const int itemIndex) {
     spec.metadata += fact;
   };
   if (!item.version.empty()) addFact(item.version);
-  addFact(item.status);
+  // An uninstalled item's list badge is just "v" plus this same version.
+  const bool versionBadge = !item.version.empty() && item.status.size() == item.version.size() + 1 &&
+                            item.status[0] == 'v' && item.status.compare(1, std::string::npos, item.version) == 0;
+  if (!versionBadge) addFact(item.status);
 
   const bool updateAvailable = item.status == tr(STR_UPDATE);
   spec.actionLabel = updateAvailable ? tr(STR_UPDATE) : tr(STR_DOWNLOAD);

@@ -388,3 +388,61 @@ Hyphenation Packs, then restart and reopen. Expect page two, saved Dark Mode,
 `Mapped ZZ-TEST` and `Mapped 1 packs`, with no MMU/assert diagnostic. Fresh cards
 need no cache reset; if reusing a card, clear only this book's `epub_<path-hash>`
 cache when validating layout changes. Hardware flashing is outside this workflow.
+
+## Plugin networking regression fixture
+
+`scripts/x4pro_local/plugin_fixture.py` creates a fresh SD seed and serves a
+synthetic AES-256 EPUB, catalog details, and event acknowledgments over host NAT.
+It needs the same FAT tools as the runner plus `openssl`. Its public test key
+must never be used for real books. The server binds only to localhost and logs
+requests and response statuses in `requests.jsonl` under the chosen directory.
+
+Start the service in one terminal, using a new output directory:
+
+```sh
+python3 scripts/x4pro_local/plugin_fixture.py --output /tmp/crossink-plugin-fixture
+```
+
+In another terminal, launch a freshly built `x4-pro-debug` image from the branch
+being tested (replace `/path/to/verified-build` with the build helper's immutable
+output directory):
+
+```sh
+python3 scripts/x4pro_local/run.py manual --release-runtime --network \
+  --http-port 18080 --build-dir /path/to/verified-build \
+  --sd /tmp/crossink-plugin-fixture/fixture/sd.img
+```
+
+Use the actual firmware UI to check:
+
+1. On first boot, dismiss What's New and wait at least 30 seconds before joining
+   Wi-Fi. This exercises background plugin time sync alongside first-time RTC
+   sync; neither may assert. Open Plugins, download Plugin Hub, and install Hello Plugin from the live hub.
+   Confirm its files persist under `/.crosspoint/plugins/hello`.
+2. Open Network test and select Network AES256. Details must show “Network catalog
+   details”; `/wrong-details` must never be requested. A filtered duplicate title
+   with a different ID/version precedes the selected item, and the discarded
+   metadata deliberately exceeds the former details capture budget.
+3. Download the book. Compare its SD bytes with `protected.epub` using the hash in
+   `plugin-fixture.json`. Before provisioning a key, opening it must be rejected.
+4. Enter File Transfer's Wi-Fi web server and provision the synthetic key:
+
+   ```sh
+   curl --fail --json @/tmp/crossink-plugin-fixture/key-request.json \
+     http://127.0.0.1:18080/api/book-key
+   ```
+
+   The API must succeed and create a 74-byte wrapped `.key` beside the book.
+   Exit File Transfer, open the book, turn a page, read for at least 15 seconds,
+   and return Home. The encrypted text must render normally.
+5. Allow network delivery, then sleep. Verify `book.downloaded`, `reader.open`,
+   `reader.session`, `reader.exit`, and `sleep.enter` requests. The service returns
+   503 on its first event request: the same event ID must retry and receive 200,
+   and the acknowledged queue must drain.
+
+Use the existing QMP controls for screenshots and read-only SD inspection;
+never edit or mount the guest's live SD image. If the emulator stalls at ROM
+entry after a firmware-requested restart, record an explicit QMP `system_reset`
+before continuing; this is an emulator workaround, not a passing restart check.
+This fixture tests synthetic protected content, not a real provider's account or
+license service. Actual emulation does not validate physical Wi-Fi or SD timing.

@@ -117,6 +117,8 @@
 - Show all button shortcut settings on the web portal, including option lists too long for the previous response buffer.
 - Import CrossPoint's normal 100% word spacing as 0 instead of maximum spacing, while preserving saved CrossInk spacing levels.
 - Fix device firmware builds with SD-card plugins enabled and share the EPUB decompressor with protected books to keep ordinary and protected EPUBs readable.
+- Prevent a crash when plugin background time updates overlap the first Wi-Fi clock sync or a manual date/time sync.
+- Show each plugin version only once in catalog details, while keeping install and update status visible.
 
 ### Changed
 
