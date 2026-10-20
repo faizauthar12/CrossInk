@@ -2,7 +2,10 @@
 
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
+#include <DeviceSecret.h>
 #include <FontFileTypes.h>
+#include <wolfssl/options.h>
+#include <wolfssl/wolfcrypt/hash.h>
 
 #include "util/FirmwareIdentity.h"
 #ifdef SIMULATOR
@@ -735,6 +738,23 @@ void CrossPointWebServer::handleStatus() const {
   doc["rssi"] = apMode ? 0 : WiFi.RSSI();
   doc["freeHeap"] = ESP.getFreeHeap();
   doc["uptime"] = millis() / 1000;
+  // ?plugin=<name> adds a stable device ID for that plugin: sha256(secret ||
+  // name). Not reversible to any hardware ID, and different per plugin.
+  std::string plugin = server->arg("plugin").c_str();
+  for (char& c : plugin) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  uint8_t secret[32];
+  if (SETTINGS.pluginsEnabled && !plugin.empty() && plugin.length() <= 64 && deviceSecret(secret)) {
+    uint8_t input[32 + 64];
+    memcpy(input, secret, sizeof(secret));
+    memcpy(input + sizeof(secret), plugin.c_str(), plugin.length());
+    uint8_t hash[32];
+    if (wc_Sha256Hash(input, sizeof(secret) + plugin.length(), hash) == 0) {
+      char hex[65];
+      for (size_t i = 0; i < sizeof(hash); i++) snprintf(hex + 2 * i, 3, "%02x", hash[i]);
+      doc["deviceId"] = hex;
+    }
+  }
+
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   doc["device"] = gpio.deviceIsX3() ? "X3" : "X4";
 #else

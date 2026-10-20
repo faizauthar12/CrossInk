@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "knygų užvėrimas"
 STR_EVENT_READING_SESSION: "skaitymo seansai"
 STR_EVENT_DOWNLOAD: "atsisiuntimai"
 STR_EVENT_SLEEP: "miegas"
+
+STR_BOOK_KEY_REQUIRED: "Atrakinkite knygą jos papildiniu."
+STR_BOOK_LOAN_EXPIRED: "Skolinimo laikas baigėsi."
+STR_BOOK_LOAN_CLOCK: "Prisijunkite prie Wi-Fi skolinimo datai patikrinti."

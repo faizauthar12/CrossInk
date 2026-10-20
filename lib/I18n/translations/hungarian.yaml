@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "könyvbezárás"
 STR_EVENT_READING_SESSION: "olvasás"
 STR_EVENT_DOWNLOAD: "letöltések"
 STR_EVENT_SLEEP: "alvás"
+
+STR_BOOK_KEY_REQUIRED: "Oldja fel a könyvet a bővítményével."
+STR_BOOK_LOAN_EXPIRED: "A kölcsönzés lejárt."
+STR_BOOK_LOAN_CLOCK: "Csatlakozzon Wi-Fihez a kölcsönzési dátum ellenőrzéséhez."

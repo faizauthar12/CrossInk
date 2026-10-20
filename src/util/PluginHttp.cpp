@@ -1,5 +1,6 @@
 #include "PluginHttp.h"
 
+#include <DownloadFileSwap.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <SecureHttpClient.h>
@@ -10,7 +11,6 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "network/DownloadFileSwap.h"
 #include "network/ProtectedPaths.h"
 #include "network/WifiPowerSaveGuard.h"
 #include "util/TaskWatchdog.h"

@@ -1688,3 +1688,18 @@ a restart before another operation or activation of its new mapping.
 Section cache version 96 (partial version `0xD1`) adds breakable, space-free token boundaries after visible hyphens and dashes. Both complete and suspended caches from earlier versions rebuild automatically.
 
 Section cache version 97 (partial version `0xD2`) prevents justification from stretching boundaries inside hyphenated words. Complete and suspended layouts from earlier versions rebuild automatically; the binary payload is unchanged.
+
+## Protected EPUB `<book>.key`
+
+Version 2 stores `FIBK` (4 bytes), version `2` (1 byte), content-key length
+(1 byte: 16 or 32), expiry (8-byte little-endian UTC epoch seconds; zero means
+no expiry), random IV (12 bytes), wrapped content key (16 or 32 bytes), and
+AES-GCM tag (16 bytes). The complete 14-byte header is authenticated as additional
+data. The wrapping key is SHA-256 of `book-key:` followed by the 32-byte internal
+NVS device secret. The file is 58 or 74 bytes; unexpected lengths are rejected.
+Version 1 remains readable and has a 13-byte header without the key-length byte,
+with a fixed 16-byte content key.
+
+Writes use `.tmp` staging and `.old` recovery. The device secret is not stored on
+the SD card. Existing EPUB cache formats are unchanged; those caches may contain
+decoded content and are usable by the reader only after its book-open access check.

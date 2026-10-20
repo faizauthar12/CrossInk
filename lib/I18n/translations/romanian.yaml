@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "închiderea cărților"
 STR_EVENT_READING_SESSION: "sesiuni de lectură"
 STR_EVENT_DOWNLOAD: "descărcări"
 STR_EVENT_SLEEP: "repaus"
+
+STR_BOOK_KEY_REQUIRED: "Deblocați cartea cu extensia sa."
+STR_BOOK_LOAN_EXPIRED: "Împrumutul a expirat."
+STR_BOOK_LOAN_CLOCK: "Conectați Wi-Fi pentru verificarea datei împrumutului."

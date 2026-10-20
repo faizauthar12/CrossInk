@@ -5,11 +5,9 @@ plugin catalogs on the reader. JavaScript runs in the connected browser;
 `device.json` describes requests and lists that the firmware understands.
 No JavaScript engine runs on the reader.
 
-This first integration supports browser interfaces, browser action jobs,
-JSON/XML catalogs, authentication, book downloads, and bundle installation.
-Firmware events are supported. Encrypted, expiring loans are not yet supported.
-`/api/crypto` and `/api/book-key` return an explicit unsupported error. Plugins
-that require those features need a later integration.
+This integration supports browser interfaces and action jobs, JSON/XML catalogs,
+authentication, book downloads, bundle installation, catalog details, firmware
+events, and protected EPUB books with device-wrapped AES-128 or AES-256 keys.
 
 ## Installation and discovery
 
@@ -192,3 +190,32 @@ Reader sessions count completed forward-page reading intervals (2–1800 seconds
 emit after at least 10 active seconds, and exclude idle exit time. EPUB, TXT and XTC
 report progress on a 0–10000 scale. Timestamps use a persisted device clock floor;
 RTC adoption and network time synchronization prevent ordinary clock rollback.
+
+## Protected books
+
+Plugins can use `/api/crypto` for the upstream crypto operations and post
+`{path, key, expires}` to `/api/book-key`. `key` is a base64-encoded 16- or
+32-byte content key; `expires` is UTC epoch seconds, or zero for no expiry.
+The destination must be an EPUB path outside protected firmware stores.
+`/api/status?plugin=<name>` returns a stable, per-plugin device ID.
+
+Keys are authenticated and wrapped using a device secret stored in internal NVS,
+then saved beside the book as `<book>.key`. Copying the SD card to another reader
+does not transfer access. Erasing NVS requires fulfilling the books again. Key
+replacement preserves the prior file through interrupted publication.
+
+Encrypted resources are decrypted as the reader requests them. Access is checked
+before loading existing book caches. Expired loans are rejected; loans with no
+trusted clock require a Wi-Fi time sync. The persisted clock cannot move backwards,
+but time spent powered off without a working RTC can delay expiry enforcement.
+Expiry is checked when opening a book, not continuously during an open session.
+
+The source EPUB remains encrypted. Existing page, CSS, image, cover, and reading
+caches can contain decoded content; this integration does not encrypt all SD data.
+Service enrollment and account credentials remain the plugin's responsibility;
+real service enrollment requires that service's supported plugin and credentials.
+
+Native simulator builds require `wolfssl` and `openssl` discoverable by
+`pkg-config`. The simulator stores its device secret in `.crossink-device-secret`
+outside `fs_`, or at `CROSSINK_DEVICE_SECRET_PATH`, with owner-only permissions.
+Never copy that file when testing access from a second simulated device.

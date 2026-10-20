@@ -43,6 +43,8 @@
 - Plugin catalogs can show paged descriptions before installing or downloading.
 - Plugins can receive reading, download, and sleep events, with queued delivery and visible event subscriptions.
 
+- Protected EPUB downloads from plugins, with device-bound keys and loan expiry checks.
+
 ### Fixed
 
 - Refresh the Library after plugin book downloads and keep long plugin descriptions readable.

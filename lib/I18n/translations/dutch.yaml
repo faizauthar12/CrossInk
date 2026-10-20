@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "boeken sluiten"
 STR_EVENT_READING_SESSION: "leessessies"
 STR_EVENT_DOWNLOAD: "downloads"
 STR_EVENT_SLEEP: "slaap"
+
+STR_BOOK_KEY_REQUIRED: "Ontgrendel dit boek met de bijbehorende plugin."
+STR_BOOK_LOAN_EXPIRED: "Deze lening is verlopen."
+STR_BOOK_LOAN_CLOCK: "Verbind met wifi om de leendatum te controleren."

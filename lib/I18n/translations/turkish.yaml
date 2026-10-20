@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "kitap kapatma"
 STR_EVENT_READING_SESSION: "okuma oturumları"
 STR_EVENT_DOWNLOAD: "indirmeler"
 STR_EVENT_SLEEP: "uyku"
+
+STR_BOOK_KEY_REQUIRED: "Kitabın kilidini eklentisiyle açın."
+STR_BOOK_LOAN_EXPIRED: "Ödünç süresi doldu."
+STR_BOOK_LOAN_CLOCK: "Ödünç tarihini doğrulamak için Wi-Fi ağına bağlanın."

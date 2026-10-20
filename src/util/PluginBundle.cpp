@@ -1,12 +1,12 @@
 #include "PluginBundle.h"
 
+#include <DownloadFileSwap.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
 
 #include "PluginEvents.h"
-#include "network/DownloadFileSwap.h"
 #include "network/ProtectedPaths.h"
 
 namespace PluginBundle {

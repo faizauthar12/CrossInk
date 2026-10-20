@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "book closes and progress"
 STR_EVENT_READING_SESSION: "reading sessions"
 STR_EVENT_DOWNLOAD: "downloads"
 STR_EVENT_SLEEP: "sleep and current book"
+
+STR_BOOK_KEY_REQUIRED: "Unlock this book with its plugin."
+STR_BOOK_LOAN_EXPIRED: "This loan has expired."
+STR_BOOK_LOAN_CLOCK: "Connect to Wi-Fi to verify the loan date."

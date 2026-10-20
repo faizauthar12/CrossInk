@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "boglukning"
 STR_EVENT_READING_SESSION: "læsning"
 STR_EVENT_DOWNLOAD: "downloads"
 STR_EVENT_SLEEP: "dvale"
+
+STR_BOOK_KEY_REQUIRED: "Lås bogen op med dens plugin."
+STR_BOOK_LOAN_EXPIRED: "Lånet er udløbet."
+STR_BOOK_LOAN_CLOCK: "Tilslut Wi-Fi for at kontrollere lånedatoen."

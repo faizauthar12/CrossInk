@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "bokstängning"
 STR_EVENT_READING_SESSION: "lässtunder"
 STR_EVENT_DOWNLOAD: "nedladdningar"
 STR_EVENT_SLEEP: "vila"
+
+STR_BOOK_KEY_REQUIRED: "Lås upp boken med dess tillägg."
+STR_BOOK_LOAN_EXPIRED: "Lånet har löpt ut."
+STR_BOOK_LOAN_CLOCK: "Anslut Wi-Fi för att kontrollera lånedatumet."

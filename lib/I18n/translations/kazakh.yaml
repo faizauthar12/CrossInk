@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "кітапты жабу"
 STR_EVENT_READING_SESSION: "оқу сеанстары"
 STR_EVENT_DOWNLOAD: "жүктеулер"
 STR_EVENT_SLEEP: "ұйқы"
+
+STR_BOOK_KEY_REQUIRED: "Кітапты оның плагині арқылы ашыңыз."
+STR_BOOK_LOAN_EXPIRED: "Қарыз мерзімі аяқталды."
+STR_BOOK_LOAN_CLOCK: "Қарыз күнін тексеру үшін Wi-Fi желісіне қосылыңыз."

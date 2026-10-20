@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "סגירת ספרים"
 STR_EVENT_READING_SESSION: "זמני קריאה"
 STR_EVENT_DOWNLOAD: "הורדות"
 STR_EVENT_SLEEP: "שינה"
+
+STR_BOOK_KEY_REQUIRED: "יש לפתוח את הספר באמצעות התוסף שלו."
+STR_BOOK_LOAN_EXPIRED: "תקופת ההשאלה הסתיימה."
+STR_BOOK_LOAN_CLOCK: "יש להתחבר ל-Wi-Fi לאימות תאריך ההשאלה."

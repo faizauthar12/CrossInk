@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "tancament de llibres"
 STR_EVENT_READING_SESSION: "sessions de lectura"
 STR_EVENT_DOWNLOAD: "baixades"
 STR_EVENT_SLEEP: "repòs"
+
+STR_BOOK_KEY_REQUIRED: "Desbloqueja el llibre amb el seu connector."
+STR_BOOK_LOAN_EXPIRED: "El préstec ha caducat."
+STR_BOOK_LOAN_CLOCK: "Connecta el Wi-Fi per verificar la data del préstec."

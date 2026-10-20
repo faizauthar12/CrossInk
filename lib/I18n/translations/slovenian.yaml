@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "zapiranje knjig"
 STR_EVENT_READING_SESSION: "bralne seje"
 STR_EVENT_DOWNLOAD: "prenosi"
 STR_EVENT_SLEEP: "spanje"
+
+STR_BOOK_KEY_REQUIRED: "Odklenite knjigo z njenim vtičnikom."
+STR_BOOK_LOAN_EXPIRED: "Izposoja je potekla."
+STR_BOOK_LOAN_CLOCK: "Povežite Wi-Fi za preverjanje datuma izposoje."

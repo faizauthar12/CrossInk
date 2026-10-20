@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "đóng sách"
 STR_EVENT_READING_SESSION: "phiên đọc"
 STR_EVENT_DOWNLOAD: "tải xuống"
 STR_EVENT_SLEEP: "ngủ"
+
+STR_BOOK_KEY_REQUIRED: "Mở khóa sách bằng tiện ích của sách."
+STR_BOOK_LOAN_EXPIRED: "Thời hạn mượn đã hết."
+STR_BOOK_LOAN_CLOCK: "Kết nối Wi-Fi để xác minh ngày mượn."

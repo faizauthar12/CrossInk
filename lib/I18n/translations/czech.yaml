@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "zavření knih"
 STR_EVENT_READING_SESSION: "čtení"
 STR_EVENT_DOWNLOAD: "stahování"
 STR_EVENT_SLEEP: "spánek"
+
+STR_BOOK_KEY_REQUIRED: "Odemkněte knihu jejím doplňkem."
+STR_BOOK_LOAN_EXPIRED: "Výpůjčka vypršela."
+STR_BOOK_LOAN_CLOCK: "Připojte Wi-Fi pro ověření data výpůjčky."

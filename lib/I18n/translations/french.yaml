@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "fermeture de livres"
 STR_EVENT_READING_SESSION: "sessions de lecture"
 STR_EVENT_DOWNLOAD: "téléchargements"
 STR_EVENT_SLEEP: "veille"
+
+STR_BOOK_KEY_REQUIRED: "Déverrouillez ce livre avec son extension."
+STR_BOOK_LOAN_EXPIRED: "Ce prêt a expiré."
+STR_BOOK_LOAN_CLOCK: "Connectez le Wi-Fi pour vérifier la date du prêt."

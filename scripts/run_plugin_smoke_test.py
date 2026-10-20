@@ -2,6 +2,10 @@
 """Exercise SD plugins against isolated HTTP/TLS fixtures and a simulator build."""
 import argparse
 import gzip
+import base64
+import hashlib
+import zipfile
+import zlib
 import http.server
 import json
 import os
@@ -32,6 +36,29 @@ def main():
             file = sd / path.lstrip('/')
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(json.dumps(value) if isinstance(value, (dict, list)) else value)
+        # Real AES fixtures: raw-deflate ADEPT and stored LCP resources.
+        for bits in (128, 256):
+            plain = b'<html><body>Protected fixture text</body></html>'
+            if bits == 128:
+                compressor = zlib.compressobj(wbits=-15)
+                payload = compressor.compress(plain) + compressor.flush()
+            else:
+                payload = plain
+            key = bytes(range(bits // 8)); iv = bytes(range(16))
+            cipher = subprocess.run(['openssl', 'enc', f'-aes-{bits}-cbc', '-K', key.hex(), '-iv', iv.hex()],
+                                    input=payload, capture_output=True, check=True).stdout
+            book = sd / f'Books/protected{bits}.epub'; book.parent.mkdir(parents=True, exist_ok=True)
+            manifest = f'<encryption><EncryptedData><EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes{bits}-cbc"/><CipherData><CipherReference URI="chapter.xhtml"/></CipherData><EncryptionProperties><Compression Method="{8 if bits == 128 else 0}" OriginalLength="{len(plain)}"/></EncryptionProperties></EncryptedData></encryption>'
+            if bits == 128:
+                manifest = manifest.replace(f' OriginalLength="{len(plain)}"', '')
+                manifest = manifest.replace('Algorithm=', 'Algorithm = ').replace('URI=', 'URI = ')
+            with zipfile.ZipFile(book, 'w') as archive:
+                archive.writestr('mimetype', 'application/epub+zip')
+                archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+                archive.writestr('content.opf', '<package version="2.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">protected-fixture</dc:identifier><dc:title>Protected fixture</dc:title><dc:creator>Test author</dc:creator><dc:language>en</dc:language></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>')
+                archive.writestr('META-INF/encryption.xml', manifest)
+                archive.writestr('chapter.xhtml', iv + cipher)
+                archive.writestr('plain.txt', 'plain resource')
         event_attempts = []
         class Fixture(http.server.BaseHTTPRequestHandler):
             protocol_version = 'HTTP/1.1'
@@ -170,8 +197,14 @@ def main():
                                          'headers': {'Authorization': 'Bearer fixture'}})
                 assert headers['X-Relay-Status'] == '200'
                 assert json.loads(relay)['authorization'] == 'Bearer fixture'
-                request('/api/crypto', {}, expected=501)
-                request('/api/book-key', {}, expected=501)
+                result, _ = request('/api/crypto', {'op': 'sha256', 'data': base64.b64encode(b'fixture').decode()})
+                assert base64.b64decode(json.loads(result)['data']) == hashlib.sha256(b'fixture').digest()
+                a, _ = request('/api/status?plugin=json'); b, _ = request('/api/status?plugin=other')
+                assert len(json.loads(a)['deviceId']) == 64 and json.loads(a)['deviceId'] != json.loads(b)['deviceId']
+                request('/api/book-key', {}, expected=400)
+                request('/api/book-key', {'path': '/Books/protected256.epub', 'key': base64.b64encode(bytes(range(32))).decode(), 'expires': 0})
+                assert len((sd / 'Books/protected256.epub.key').read_bytes()) == 74
+
                 request('/api/fetch', {'url': origin + '/book', 'dest': '/.crosspoint/wifi.json'}, expected=400)
                 request('/download?path=/.crosspoint/wifi.json', expected=403)
                 write('/Books/browser.txt', 'old book')
@@ -204,10 +237,16 @@ def main():
                 status, _ = request(f'/api/plugin-jobs/status?id={job}'); assert json.loads(status)['state'] == 'done'
                 write('/plugin-web-done', 'done')
                 assert process.wait(timeout=10) == 0
+                other_env = env | {'CROSSINK_VERIFY_COPIED_KEYS': '1',
+                                   'CROSSINK_DEVICE_SECRET_PATH': str(work / 'second-device-secret')}
+                copied = subprocess.run([str(ROOT / '.pio/build' / args.env / 'program')], cwd=work,
+                                        env=other_env, stdout=output, stderr=subprocess.STDOUT, timeout=30)
+                assert copied.returncode == 0, 'Copied key accepted or second-device test failed'
+
             finally:
                 if process.poll() is None: process.kill(); process.wait()
                 fixture.shutdown()
-        print('Plugin smoke passed: catalogs, touch, HTTPS, repeated bundles, sign-in, tokens, relay, staged fetch, uploads, jobs, protected paths.')
+        print('Plugin smoke passed: catalogs, touch, HTTPS, repeated bundles, sign-in, tokens, relay, staged fetch, uploads, jobs, protected paths, AES-128/AES-256, wrapped keys, expiry, tamper and second-device rejection.')
         print(f'Screenshots and log: {args.output.resolve()}')
 
 

@@ -8,6 +8,7 @@
 #if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
 #include <SecureHttpClient.h>
 #endif
+#include <DownloadFileSwap.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
 #include <strings.h>
@@ -18,7 +19,6 @@
 #include <utility>
 
 #include "AppVersion.h"
-#include "network/DownloadFileSwap.h"
 #include "network/HttpDownloadFilename.h"
 #include "network/HttpDownloadResume.h"
 #include "network/HttpRedirectPolicy.h"

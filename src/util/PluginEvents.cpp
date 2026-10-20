@@ -11,6 +11,7 @@
 #include <random>
 static uint32_t esp_random() { return std::random_device{}(); }
 #endif
+#include <DownloadFileSwap.h>
 #include <TrustedTime.h>
 #include <WiFi.h>
 #include <time.h>
@@ -26,7 +27,6 @@ static uint32_t esp_random() { return std::random_device{}(); }
 #include "PluginLocations.h"
 #include "WifiCredentialStore.h"
 #include "components/UITheme.h"
-#include "network/DownloadFileSwap.h"
 #include "network/ProtectedPaths.h"
 
 namespace {

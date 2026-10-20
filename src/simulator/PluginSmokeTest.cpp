@@ -1,12 +1,16 @@
 #ifdef SIMULATOR
 #include "PluginSmokeTest.h"
 
+#include <BookKey.h>
+#include <ContentProtection.h>
+#include <Epub.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
+#include <ZipFile.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -63,6 +67,13 @@ struct PluginCatalogSmokeTest {
     require(false, "fixture plugin missing");
   }
   static void tick() {
+    if (std::getenv("CROSSINK_VERIFY_COPIED_KEYS")) {
+      uint8_t key[32];
+      int64_t expiry;
+      require(bookkey::read("/Books/protected256.epub", key, &expiry) == 0, "Copied key opened on another device");
+      LOG_INF("PLUGINTEST", "Copied device key rejected");
+      std::_Exit(0);
+    }
     static const uint8_t originalTheme = SETTINGS.uiTheme;
     static int phase = -4;
     static int homePass = 0;
@@ -230,6 +241,62 @@ struct PluginCatalogSmokeTest {
       return;
     }
     if (phase == -4) {
+      static bool protectedChecked = false;
+      if (!protectedChecked) {
+        protectedChecked = true;
+        for (int bits : {128, 256}) {
+          const std::string path = "/Books/protected" + std::to_string(bits) + ".epub";
+          uint8_t key[32];
+          for (size_t i = 0; i < sizeof(key); ++i) key[i] = i;
+          std::string error;
+          require(!freeink::content::openProtectedBook(path, error) && !error.empty(), "Missing key allowed");
+          require(bookkey::write(path, key, bits / 8, 0), "Key wrap failed");
+          uint8_t unwrapped[32];
+          int64_t expiry = -1;
+          require(bookkey::read(path, unwrapped, &expiry) == bits / 8 && expiry == 0 &&
+                      memcmp(key, unwrapped, bits / 8) == 0,
+                  "Key unwrap failed");
+          auto book = freeink::content::openProtectedBook(path, error);
+          require(book && error.empty(), "Protected open failed");
+          std::string plaintext;
+          auto append = [](void* target, const uint8_t* bytes, size_t length) {
+            static_cast<std::string*>(target)->append(reinterpret_cast<const char*>(bytes), length);
+            return true;
+          };
+          require(book->decryptToSink("chapter.xhtml", append, &plaintext) &&
+                      plaintext == "<html><body>Protected fixture text</body></html>",
+                  "Protected stream differs");
+          size_t size = 0;
+          auto plain = ZipFile(path).readFileToMemory("plain.txt", &size, false);
+          require(plain && size == 14, "Protected reader retained SD handle");
+          free(plain);
+          book.reset();
+          {
+            Epub readable(path, "/.crosspoint");
+            require(readable.load(true, true), "Protected EPUB metadata/cache load failed");
+            size_t expected = 0;
+            require(readable.getItemSize("chapter.xhtml", &expected) && expected == plaintext.size(),
+                    "Protected resource size was ciphertext size");
+            size_t actual = 0;
+            auto bytes = readable.readItemContentsToBytes("chapter.xhtml", &actual, true);
+            require(bytes && std::string(reinterpret_cast<char*>(bytes), actual) == plaintext,
+                    "EPUB did not route encrypted resource reads");
+            free(bytes);
+          }
+          require(bookkey::write(path, key, bits / 8, 1), "Expiring key write failed");
+          Epub expired(path, "/.crosspoint");
+          require(!expired.load() && expired.getLastLoadFailure() == Epub::OpenFailure::LoanExpired,
+                  "Expired book allowed");
+          auto f = Storage.open((path + ".key").c_str(), O_RDWR);
+          require(f && f.seek(6), "Cannot open key fixture");
+          uint8_t tamper = 99;
+          require(f.write(&tamper, 1) == 1, "Cannot tamper key fixture");
+          f.close();
+          require(bookkey::read(path, unwrapped, &expiry) == 0, "Tampered expiry accepted");
+          require(bookkey::write(path, key, bits / 8, 0), "Key restore failed");
+        }
+        LOG_INF("PLUGINTEST", "Protected AES-128/AES-256, wrapped keys, expiry and tamper checks passed");
+      }
       SETTINGS.pluginsEnabled = 1;
       const int theme = homePass / 2;
       if (theme >= CrossPointSettings::UI_THEME_COUNT) {

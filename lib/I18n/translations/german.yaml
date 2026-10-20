@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "Buch schließen"
 STR_EVENT_READING_SESSION: "Lesesitzungen"
 STR_EVENT_DOWNLOAD: "Downloads"
 STR_EVENT_SLEEP: "Ruhezustand"
+
+STR_BOOK_KEY_REQUIRED: "Entsperren Sie das Buch mit seinem Plugin."
+STR_BOOK_LOAN_EXPIRED: "Die Ausleihe ist abgelaufen."
+STR_BOOK_LOAN_CLOCK: "WLAN verbinden, um das Ausleihdatum zu prüfen."

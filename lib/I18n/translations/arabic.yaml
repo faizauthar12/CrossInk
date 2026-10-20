@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "إغلاق الكتب"
 STR_EVENT_READING_SESSION: "جلسات القراءة"
 STR_EVENT_DOWNLOAD: "التنزيلات"
 STR_EVENT_SLEEP: "السكون"
+
+STR_BOOK_KEY_REQUIRED: "افتح هذا الكتاب باستخدام إضافته."
+STR_BOOK_LOAN_EXPIRED: "انتهت مدة الإعارة."
+STR_BOOK_LOAN_CLOCK: "اتصل بشبكة Wi-Fi للتحقق من تاريخ الإعارة."

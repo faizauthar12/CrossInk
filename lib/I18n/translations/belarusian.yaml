@@ -1016,3 +1016,7 @@ STR_EVENT_BOOK_CLOSE: "закрыццё кніг"
 STR_EVENT_READING_SESSION: "сеансы чытання"
 STR_EVENT_DOWNLOAD: "спампоўкі"
 STR_EVENT_SLEEP: "сон"
+
+STR_BOOK_KEY_REQUIRED: "Разблакуйце кнігу праз яе плагін."
+STR_BOOK_LOAN_EXPIRED: "Тэрмін пазыкі скончыўся."
+STR_BOOK_LOAN_CLOCK: "Падключыце Wi-Fi для праверкі даты пазыкі."
