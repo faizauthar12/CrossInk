@@ -18,8 +18,8 @@
 #include "DailyReadingStats.h"
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
+#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
-#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "sync/SyncPending.h"
@@ -56,8 +56,7 @@ class XtcReaderActivity final : public Activity {
   // Session-only display toggle; fixed-layout XTC pages are never regenerated.
   bool statusBarVisible = true;
   bool longPressMenuHandled = false;
-  SideButtonShortcuts sideButtonShortcuts;
-  bool frontButtonLongPressHandled = false;
+  ReaderButtonShortcuts readerButtonShortcuts;
   bool longPressBackHandled = false;
   bool skipRecentBookUpdateOnEntry = false;
   ReaderProgressSaveDebouncer progressSaveDebouncer;

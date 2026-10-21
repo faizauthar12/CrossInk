@@ -364,6 +364,7 @@ class SettingsActivity final : public Activity {
   // Opens System > Device with the Download Languages popup once the activity enters.
   void openLanguageDownloadsOnEnter() { openLanguageDownloadsPending = true; }
 #ifdef SIMULATOR
+  void simulatorOpenFrontButtons();
   int simulatorCategoryIndex() const { return selectedCategoryIndex; }
   int simulatorSelectedIndex() const { return selectedSettingIndex; }
 #if CROSSINK_SCALABLE_FONTS

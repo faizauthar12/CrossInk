@@ -80,7 +80,7 @@ constexpr size_t controlsParentBaseCount = 5;
 constexpr size_t controlsHomeButtonCount = 4;
 constexpr size_t controlsPowerMinCount = 2;
 constexpr size_t controlsPowerMaxCount = 3;
-constexpr size_t controlsFrontButtonCount = 6;
+constexpr size_t controlsFrontButtonCount = 7;
 constexpr size_t controlsSideButtonBaseCount = 7;
 
 void formatFrontlightScheduleTime(const uint16_t timeOfDay, char* const buf, const size_t len) {
@@ -1374,6 +1374,7 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   const auto& setting = (*currentSettings)[selectedSetting];
+  if (isPageGestureSettingDisabled(setting)) return;
   const bool sleepScreenChanged = setting.valuePtr == &CrossPointSettings::sleepScreen;
   const bool quickResumeTimeoutChanged = setting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
 
@@ -1753,6 +1754,7 @@ void SettingsActivity::openIdleTimeThresholdPicker() {
 }
 
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
+  if (isPageGestureSettingDisabled(setting)) return tr(STR_DISABLED);
   if (settingShowsNavigationCaret(setting)) return ">";
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     return SETTINGS.*(setting.valuePtr) ? tr(STR_ON) : tr(STR_OFF);
@@ -1961,6 +1963,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     values[i] = settingValueText(settings[i]);
     const bool isSectionHeader = settings[i].type == SettingType::SECTION_HEADER;
     fui::ListItem item;
+    item.enabled = !isPageGestureSettingDisabled(settings[i]);
     const fui::BitmapRef directionIcon = swipeActionIcon(settings[i].nameId);
     const fui::BitmapRef endpointIcon = frontlightScheduleEndpointIcon(settings[i]);
     const fui::BitmapRef itemIcon = directionIcon ? directionIcon : endpointIcon;
@@ -2063,3 +2066,11 @@ void SettingsActivity::render(RenderLock&&) {
   // Always use standard refresh for settings screen
   renderer.displayBuffer();
 }
+
+#ifdef SIMULATOR
+void SettingsActivity::simulatorOpenFrontButtons() {
+  controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(getSettingsList());
+  selectedCategoryIndex = 2;
+  openSubmenu(SettingAction::ControlsFrontButtons);
+}
+#endif

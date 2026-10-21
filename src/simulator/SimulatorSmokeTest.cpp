@@ -78,9 +78,9 @@
 #include "activities/reader/EpubReaderFootnotesActivity.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
+#include "activities/reader/ReaderButtonShortcuts.h"
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderUtils.h"
-#include "activities/reader/SideButtonShortcuts.h"
 #include "activities/reader/TxtReaderActivity.h"
 #include "activities/reader/XtcReaderActivity.h"
 #include "activities/reader/XtcReaderMenuActivity.h"
@@ -1356,6 +1356,141 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Using theme index %d", theme);
   }
 
+  static void verifyGestureShortcutChanges() {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    using C = CrossPointSettings;
+    const auto all = getSettingsList();
+    for (const auto& setting : getBaseSettingsList()) {
+      if (settingKeyIs(setting, "touchReaderControls") || settingKeyIs(setting, "longPressButtonBehavior"))
+        fail("Retired setting still in shared device/web catalog");
+    }
+    for (const uint8_t legacyMode :
+         {C::OFF, C::CHAPTER_SKIP, C::FONT_SIZE_CHANGE, C::ORIENTATION_CHANGE, C::ORIENTATION_FLIP}) {
+      JsonDocument old;
+      old["touchReaderControls"] = 0;
+      old["longPressButtonBehavior"] = legacyMode;
+      old["pageTurnGesture"] = C::SWIPE_ONLY;
+      old["previousPageGesture"] = C::INVERTED_TAP;
+      SETTINGS.fromJson(old.as<JsonVariantConst>());
+      const uint8_t left = legacyMode == C::CHAPTER_SKIP         ? C::SIDE_PREVIOUS_CHAPTER
+                           : legacyMode == C::FONT_SIZE_CHANGE   ? C::SIDE_DECREASE_FONT
+                           : legacyMode == C::ORIENTATION_FLIP   ? C::SIDE_ROTATE_FLIP
+                           : legacyMode == C::ORIENTATION_CHANGE ? C::SIDE_ROTATE_CLOCKWISE
+                                                                 : uint8_t{C::IGNORE};
+      const uint8_t right = legacyMode == C::CHAPTER_SKIP         ? C::SIDE_NEXT_CHAPTER
+                            : legacyMode == C::FONT_SIZE_CHANGE   ? C::SIDE_INCREASE_FONT
+                            : legacyMode == C::ORIENTATION_FLIP   ? C::SIDE_ROTATE_FLIP
+                            : legacyMode == C::ORIENTATION_CHANGE ? C::SIDE_ROTATE_COUNTERCLOCKWISE
+                                                                  : uint8_t{C::IGNORE};
+      if (SETTINGS.frontButtonLeftLong != left || SETTINGS.frontButtonRightLong != right ||
+          SETTINGS.disablePageTurnGestures || SETTINGS.pageTurnGesture != C::SWIPE_ONLY ||
+          SETTINGS.previousPageGesture != C::INVERTED_TAP)
+        fail("Legacy front/touch migration failed");
+      old["frontButtonLeftLong"] = C::LIBRARY;
+      SETTINGS.fromJson(old.as<JsonVariantConst>());
+      if (SETTINGS.frontButtonLeftLong != C::LIBRARY || SETTINGS.frontButtonRightLong != right)
+        fail("Partial front migration replaced explicit choice");
+      JsonDocument saved;
+      SETTINGS.toJson(saved);
+      if (!saved["touchReaderControls"].isNull() || !saved["longPressButtonBehavior"].isNull())
+        fail("Retired settings exported again");
+      SETTINGS.fromJson(saved.as<JsonVariantConst>());
+      if (SETTINGS.frontButtonLeftLong != C::LIBRARY || SETTINGS.frontButtonRightLong != right)
+        fail("Front assignments did not survive round trip");
+    }
+    for (const auto catalog :
+         {ShortcutOptionCatalog::PowerButton, ShortcutOptionCatalog::ButtonChord, ShortcutOptionCatalog::LongPress,
+          ShortcutOptionCatalog::HomeButton, ShortcutOptionCatalog::SideButton}) {
+      const auto setting = buildShortcutSetting(StrId::STR_LONG_PRESS_ACTION, &C::shortPwrBtn, "test", catalog);
+      const auto raw = shortcutRawValue(catalog, C::TOGGLE_PAGE_TURN_GESTURES);
+      if (gpio.hasTouch() &&
+          (raw == SHORTCUT_OPTION_UNAVAILABLE ||
+           std::find(setting.enumRawValues.begin(), setting.enumRawValues.end(), raw) == setting.enumRawValues.end()))
+        fail("Page gesture shortcut missing from catalog");
+    }
+    SETTINGS.frontButtonLeftLong = C::LIBRARY;
+    SETTINGS.frontButtonRightLong = C::FORCE_REFRESH;
+    mappedInputManager.setReaderMode(true);
+    for (const auto button : {MappedInputManager::Button::Left, MappedInputManager::Button::Right}) {
+      ReaderButtonShortcuts tracker;
+      mappedInputManager.simulatorInjectPress(button);
+      auto result = tracker.update(mappedInputManager, 100);
+      if (result.triggered || !result.consumed) fail("Front shortcut fired on press");
+      mappedInputManager.simulatorClearInputFrame();
+      result = tracker.update(mappedInputManager, 100 + ReaderUtils::SKIP_HOLD_MS);
+      if (!result.triggered || !result.longPress || !result.front ||
+          result.action != (button == MappedInputManager::Button::Left ? C::LIBRARY : C::FORCE_REFRESH))
+        fail("Independent front long action failed");
+      if (tracker.update(mappedInputManager, 2000).triggered) fail("Front hold repeated");
+      mappedInputManager.suppressNextFrontRelease(button);
+      if (mappedInputManager.isPressed(button)) fail("Front hold leaked into shortcut destination");
+      mappedInputManager.simulatorClearInputFrame();
+      mappedInputManager.simulatorInjectRelease(button);
+      if (mappedInputManager.wasReleased(button) || tracker.update(mappedInputManager, 2100).triggered)
+        fail("Front hold leaked a release/page turn");
+      mappedInputManager.simulatorClearInputFrame();
+      mappedInputManager.simulatorInjectPress(button);
+      tracker.update(mappedInputManager, 2200);
+      mappedInputManager.simulatorClearInputFrame();
+      mappedInputManager.simulatorInjectRelease(button);
+      result = tracker.update(mappedInputManager, 2300);
+      if (!result.triggered || result.longPress ||
+          result.action != (button == MappedInputManager::Button::Left ? C::PREVIOUS_PAGE : C::PAGE_TURN))
+        fail("Short page turn lost after front long action");
+      mappedInputManager.simulatorClearInputFrame();
+    }
+    for (const auto trigger : {QuickLockTrigger::FrontLeftLong, QuickLockTrigger::FrontRightLong}) {
+      ButtonShortcutController lock;
+      lock.toggleQuickLock(100, trigger);
+      const bool left = trigger == QuickLockTrigger::FrontLeftLong;
+      if (lock.tryUnlockFront(200, left, left, false, !left, !left, false, 700)) fail("Front unlocked on press");
+      if (!lock.tryUnlockFront(900, left, false, false, !left, false, false, 700) || lock.isQuickLocked())
+        fail("Front Quick Lock could not unlock");
+    }
+    QuickActions::applyTrigger(SETTINGS, QuickActions::Trigger::FrontLeftLong);
+    QuickActions::synchronize(SETTINGS);
+    if (SETTINGS.frontButtonLeftLong != C::QUICK_ACTIONS) fail("Front Quick Actions trigger lost");
+    QuickActions::applyTrigger(SETTINGS, QuickActions::Trigger::FrontRightLong);
+    if (SETTINGS.frontButtonLeftLong != C::IGNORE || SETTINGS.frontButtonRightLong != C::QUICK_ACTIONS)
+      fail("Front Quick Actions exclusivity failed");
+#if CROSSINK_APP_CAP_TOUCH
+    SETTINGS.pageTurnGesture = SETTINGS.previousPageGesture = C::TAP_AND_SWIPE;
+    SETTINGS.disablePageTurnGestures = 0;
+    const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
+    for (const bool paused : {false, true}) {
+      if (paused && !dispatchShortcutAction(C::TOGGLE_PAGE_TURN_GESTURES)) fail("Cannot pause page gestures");
+      for (const bool locked : {false, true}) {
+        SETTINGS.disableReaderTouchscreen = locked;
+        mappedInputManager.simulatorInjectTouchDown(w / 2, h * 3 / 4);
+        mappedInputManager.simulatorInjectTouchRelease(w / 2, h / 4);
+        if (ReaderUtils::isTouchMenuGesture(mappedInputManager) != !locked) fail("Reader menu gate regression");
+        mappedInputManager.simulatorClearInputFrame();
+        mappedInputManager.simulatorInjectTouchDown(w / 2, 1);
+        mappedInputManager.simulatorInjectTouchRelease(w / 2, h / 2);
+        if (mappedInputManager.wasReaderLightPanelGesture() != !locked) fail("Frontlight gate regression");
+        mappedInputManager.simulatorClearInputFrame();
+        mappedInputManager.simulatorInjectTouchDown(w * 3 / 4, h / 2);
+        mappedInputManager.simulatorInjectTouchRelease(w * 3 / 4, h / 2);
+        const auto tap = ReaderUtils::detectTouchPageTurn(renderer, mappedInputManager);
+        if (tap.tapped != !locked || tap.next != (!locked && !paused)) fail("Page pause blocked other taps");
+        mappedInputManager.simulatorClearInputFrame();
+        mappedInputManager.simulatorInjectTouchDown(w * 3 / 4, h / 2);
+        mappedInputManager.simulatorInjectTouchRelease(w / 4, h / 2);
+        const auto swipe = ReaderUtils::detectTouchPageTurn(renderer, mappedInputManager);
+        if (swipe.next != (!locked && !paused)) fail("Page swipe pause regression");
+        mappedInputManager.simulatorClearInputFrame();
+      }
+    }
+    if (!dispatchShortcutAction(C::TOGGLE_PAGE_TURN_GESTURES) || SETTINGS.disablePageTurnGestures ||
+        SETTINGS.pageTurnGesture != C::TAP_AND_SWIPE)
+      fail("Cannot restore page gestures");
+#endif
+    mappedInputManager.setReaderMode(false);
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    LOG_INF("SMOKE", "Gesture shortcut migration, catalogs, gates, front releases and lock checks passed");
+  }
+
   static void verifyMixedPageGestures() {
 #if CROSSINK_APP_CAP_TOUCH
     if (!gpio.hasTouch()) return;
@@ -1531,17 +1666,17 @@ class SimulatorSmokeTest {
       for (size_t row = 0; row < rows.size(); ++row) {
         const auto& setting = rows[row];
         const auto trigger = QuickActions::triggerForSetting(setting.valuePtr);
-        if (trigger == QuickActions::Trigger::None && !settingKeyIs(setting, "longPressButtonBehavior")) continue;
+        if (trigger == QuickActions::Trigger::None) continue;
         const bool chord = trigger == QuickActions::Trigger::PowerUp || trigger == QuickActions::Trigger::UpDown;
         const bool longPress = trigger == QuickActions::Trigger::LongBack || trigger == QuickActions::Trigger::LongMenu;
         const bool side =
             trigger == QuickActions::Trigger::SideUpShort || trigger == QuickActions::Trigger::SideUpLong ||
-            trigger == QuickActions::Trigger::SideDownShort || trigger == QuickActions::Trigger::SideDownLong;
-        const uint8_t raw = settingKeyIs(setting, "longPressButtonBehavior") ? CrossPointSettings::ORIENTATION_FLIP
-                            : chord                                          ? CrossPointSettings::CHORD_ROTATE_FLIP
-                            : longPress                                      ? CrossPointSettings::LONG_MENU_ROTATE_FLIP
-                            : side                                           ? CrossPointSettings::SIDE_ROTATE_FLIP
-                                                                             : CrossPointSettings::ROTATE_FLIP;
+            trigger == QuickActions::Trigger::SideDownShort || trigger == QuickActions::Trigger::SideDownLong ||
+            trigger == QuickActions::Trigger::FrontLeftLong || trigger == QuickActions::Trigger::FrontRightLong;
+        const uint8_t raw = chord       ? CrossPointSettings::CHORD_ROTATE_FLIP
+                            : longPress ? CrossPointSettings::LONG_MENU_ROTATE_FLIP
+                            : side      ? CrossPointSettings::SIDE_ROTATE_FLIP
+                                        : CrossPointSettings::ROTATE_FLIP;
         verify(setting, raw);
         const auto index =
             std::find(setting.enumRawValues.begin(), setting.enumRawValues.end(), raw) - setting.enumRawValues.begin();
@@ -1638,24 +1773,13 @@ class SimulatorSmokeTest {
     SETTINGS.fromJson(navigationOriginal.as<JsonVariantConst>());
     const auto gestures = buildControlsTapsGesturesSettingsList(all);
     if (gpio.hasTouch()) {
-      if (gestures.empty() || gestures[0].nameId != StrId::STR_TOUCH_READER_CONTROLS ||
-          gestures[0].valuePtr != &CrossPointSettings::touchReaderControls) {
-        fail("Reader touch toggle missing from device gesture settings");
-      }
-      if (gestures.size() < 4 || gestures[1].nameId != StrId::STR_NEXT_PAGE ||
-          gestures[2].nameId != StrId::STR_PREV_PAGE || gestures[1].enumValues != gestures[2].enumValues) {
-        fail("Page gesture settings order/options mismatch");
-      }
-      if (gpio.supportsMultiTouch() && (gestures.size() < 5 || gestures[4].nameId != StrId::STR_TWO_FINGER_ROTATION)) {
-        fail("Two-finger rotation gesture setting order mismatch");
-      }
-      const size_t statusIndex = gpio.supportsMultiTouch() ? 5 : 3;
-      if (gestures.size() <= statusIndex || gestures[statusIndex].nameId != StrId::STR_TAP_HIDE_STATUS_BAR) {
-        fail("Status bar gesture setting order mismatch");
-      }
+      if (hasSettingByName(all, StrId::STR_TOUCH_READER_CONTROLS)) fail("Retired touch setting still visible");
+      if (gestures.size() < 3 || gestures[0].nameId != StrId::STR_NEXT_PAGE ||
+          gestures[1].nameId != StrId::STR_PREV_PAGE)
+        fail("Page gesture settings missing");
       JsonDocument beforeEditor;
       SETTINGS.toJson(beforeEditor);
-      SETTINGS.touchReaderControls = CrossPointSettings::TOUCH_READER_OFF;
+      SETTINGS.disablePageTurnGestures = 1;
       RenderLock editorLock;
       SettingsActivity editor(renderer, mappedInputManager);
       editor.onEnter();
@@ -1678,12 +1802,18 @@ class SimulatorSmokeTest {
       if (editor.simulatorActiveSubmenu() != SettingAction::ControlsTapsGestures)
         fail("Cannot open Taps & Gestures settings");
       editor.render(std::move(editorLock));
-      captureStatusBarScreen("touch-reader-controls-off");
+      captureStatusBarScreen("page-gestures-disabled");
       press(MappedInputManager::Button::Confirm);
-      if (SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_ON)
-        fail("Device setting did not re-enable reader touch controls");
+      if (editor.simulatorOptionPopupActive()) fail("Disabled page gesture opened picker");
+      SETTINGS.disablePageTurnGestures = 0;
       editor.render(std::move(editorLock));
-      captureStatusBarScreen("touch-reader-controls-on");
+      captureStatusBarScreen("taps-and-gestures");
+      press(MappedInputManager::Button::Confirm);
+      if (!editor.simulatorOptionPopupActive()) fail("Enabled page gesture picker unavailable");
+      press(MappedInputManager::Button::Back);
+      editor.simulatorOpenFrontButtons();
+      editor.render(std::move(editorLock));
+      captureStatusBarScreen("front-button-shortcuts");
       editor.onExit();
       SETTINGS.fromJson(beforeEditor.as<JsonVariantConst>());
     } else if (!gestures.empty()) {
@@ -1718,7 +1848,7 @@ class SimulatorSmokeTest {
       crosspoint["touchReaderControls"] = mode;
       crosspoint["disableReaderTouchscreen"] = 1;
       SETTINGS.fromJson(crosspoint.as<JsonVariantConst>(), true);
-      if (SETTINGS.disableReaderTouchscreen || SETTINGS.touchReaderControls != (mode != 0) ||
+      if (SETTINGS.disableReaderTouchscreen || SETTINGS.disablePageTurnGestures ||
           SETTINGS.pageTurnGesture != importedGestures[mode] ||
           SETTINGS.previousPageGesture != importedGestures[mode]) {
         fail("CrossPoint touch settings migration mismatch");
@@ -1729,7 +1859,7 @@ class SimulatorSmokeTest {
       SETTINGS.pageTurnGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
       SETTINGS.previousPageGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
       SETTINGS.fromJson(migrated.as<JsonVariantConst>());
-      if (SETTINGS.disableReaderTouchscreen || SETTINGS.touchReaderControls != (mode != 0) ||
+      if (SETTINGS.disableReaderTouchscreen || SETTINGS.disablePageTurnGestures ||
           SETTINGS.pageTurnGesture != importedGestures[mode] ||
           SETTINGS.previousPageGesture != importedGestures[mode]) {
         fail("Migrated CrossPoint touch settings did not survive reload");
@@ -1775,7 +1905,7 @@ class SimulatorSmokeTest {
     const String savedLegacySettings = hadLegacySettings ? Storage.readFile(LEGACY_SETTINGS_FILE_JSON) : String();
 
     JsonDocument crossInkSettings;
-    crossInkSettings["touchReaderControls"] = CrossPointSettings::TOUCH_READER_ON;
+    crossInkSettings["touchReaderControls"] = 1;
     crossInkSettings["pageTurnGesture"] = CrossPointSettings::TAP_ONLY;
     crossInkSettings["previousPageGesture"] = CrossPointSettings::SWIPE_ONLY;
     crossInkSettings["disableReaderTouchscreen"] = 0;
@@ -1904,8 +2034,8 @@ class SimulatorSmokeTest {
       fail("Quick Actions is missing from the Power + Up chord setting");
     }
     if (CrossPointSettings::HOME_READER != 36 || CrossPointSettings::SELECT_CHAPTER != 38 ||
-        CrossPointSettings::SHORT_PWRBTN_COUNT != 40 || CrossPointSettings::CHORD_HOME_READER != 32 ||
-        CrossPointSettings::CHORD_SELECT_CHAPTER != 34 || CrossPointSettings::POWER_CHORD_ACTION_COUNT != 36) {
+        CrossPointSettings::SHORT_PWRBTN_COUNT != 41 || CrossPointSettings::CHORD_HOME_READER != 32 ||
+        CrossPointSettings::CHORD_SELECT_CHAPTER != 34 || CrossPointSettings::POWER_CHORD_ACTION_COUNT != 37) {
       fail("Home/Reader changed persisted shortcut IDs or counts");
     }
     if (QuickActions::actionLabel(CrossPointSettings::HOME_READER) != StrId::STR_HOME_READER) {
@@ -2294,12 +2424,12 @@ class SimulatorSmokeTest {
         fail("Side-button menu is missing an individual shortcut");
     }
 
-    SideButtonShortcuts shortcuts;
+    ReaderButtonShortcuts shortcuts;
     mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Up);
     const auto heldUp = shortcuts.update(mappedInputManager, 1000);
     if (!heldUp.consumed) fail("Side-button press was not captured");
     mappedInputManager.injectRelease(MappedInputManager::Button::Right);
-    if (SideButtonShortcuts::shouldConsume(heldUp, mappedInputManager))
+    if (ReaderButtonShortcuts::shouldConsume(heldUp, mappedInputManager))
       fail("Side-button hold swallowed a chord page turn");
     mappedInputManager.clearInjectedReleases();
     mappedInputManager.simulatorClearInputFrame();
@@ -5751,6 +5881,14 @@ class SimulatorSmokeTest {
           sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
           sdFontSystem.releaseRegistry();
           LOG_INF("SMOKE", "Simulator smoke test passed: font recovery");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_GESTURE_SHORTCUTS")) {
+          verifyGestureShortcutChanges();
+          verifyReaderControlsSettings();
+          verifyMixedPageGestures();
+          verifySideButtonMigrationAndInput();
+          LOG_INF("SMOKE", "Simulator smoke test passed: gesture shortcuts");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES")) {

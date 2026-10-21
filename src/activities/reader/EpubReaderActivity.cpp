@@ -3486,20 +3486,25 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  const bool chordPageTurn = mappedInput.hasInjectedRelease(MappedInputManager::Button::Right);
-  const auto side = sideButtonShortcuts.update(mappedInput, millis());
-  if (SideButtonShortcuts::shouldConsume(side, mappedInput)) {
+  const auto side = readerButtonShortcuts.update(mappedInput, millis());
+  if (ReaderButtonShortcuts::shouldConsume(side, mappedInput)) {
     if (side.triggered) {
-      if (side.longPress)
-        mappedInput.suppressNextSideRelease(side.up ? MappedInputManager::Button::Up
-                                                    : MappedInputManager::Button::Down);
+      if (side.longPress) {
+        if (side.front)
+          mappedInput.suppressNextFrontRelease(side.up ? MappedInputManager::Button::Left
+                                                       : MappedInputManager::Button::Right);
+        else
+          mappedInput.suppressNextSideRelease(side.up ? MappedInputManager::Button::Up
+                                                      : MappedInputManager::Button::Down);
+      }
       switch (side.action) {
         case CrossPointSettings::SIDE_PREVIOUS_CHAPTER:
         case CrossPointSettings::SIDE_NEXT_CHAPTER: {
           const bool next = side.action == CrossPointSettings::SIDE_NEXT_CHAPTER;
+          if (handleEndOfBookPageTurn(next)) break;
           clearPendingManualPageTurns();
           if (!next && isAtBookStart()) break;
-          if (!next && section && section->currentPage > 0) {
+          if (!side.front && !next && section && section->currentPage > 0) {
             section->currentPage = 0;
           } else {
             RenderLock lock(*this);
@@ -3534,7 +3539,7 @@ void EpubReaderActivity::loop() {
         default: {
           const auto action = static_cast<CrossPointSettings::SHORT_PWRBTN>(side.action);
           if (action == CrossPointSettings::QUICK_LOCK)
-            handleGlobalPowerButtonAction(action, SideButtonShortcuts::quickLockTrigger(side));
+            handleGlobalPowerButtonAction(action, ReaderButtonShortcuts::quickLockTrigger(side));
           else if (!handleShortcutAction(action))
             handleGlobalPowerButtonAction(action);
           break;
@@ -3556,81 +3561,6 @@ void EpubReaderActivity::loop() {
     // later release so the app-wide shortcut dispatcher cannot run it again.
     mappedInput.suppressNextPowerRelease();
     return;
-  }
-
-  const bool frontLongPressChangesFont = SETTINGS.longPressButtonBehavior == CrossPointSettings::FONT_SIZE_CHANGE;
-  const bool frontLongPressAction = SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP ||
-                                    SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_CHANGE ||
-                                    SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_FLIP ||
-                                    frontLongPressChangesFont;
-  if (frontLongPressAction) {
-    const bool leftReleased = mappedInput.wasReleased(MappedInputManager::Button::Left);
-    const bool rightReleased = mappedInput.wasReleased(MappedInputManager::Button::Right);
-    if (frontButtonLongPressHandled && (leftReleased || rightReleased)) {
-      frontButtonLongPressHandled = false;
-      return;
-    }
-
-    const bool longPressReady = mappedInput.getHeldTime() > ReaderUtils::SKIP_HOLD_MS;
-    const bool prevLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Left);
-    const bool nextLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Right);
-    if (!frontButtonLongPressHandled && (prevLongPressed || nextLongPressed)) {
-      frontButtonLongPressHandled = true;
-      if (SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP) {
-        clearPendingManualPageTurns();
-        if (!nextLongPressed && currentSpineIndex <= 0) {
-          bool changed = false;
-          {
-            RenderLock lock(*this);
-            if (section && section->currentPage > 0) {
-              section->currentPage = 0;
-              changed = true;
-            }
-          }
-          if (changed) requestUpdate();
-          return;
-        }
-        if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
-          if (nextLongPressed) {
-            onGoHome();
-          } else {
-            currentSpineIndex = epub->getSpineItemsCount() - 1;
-            nextPageNumber = 0;
-            pendingPageJump = std::numeric_limits<uint16_t>::max();
-            requestUpdate();
-          }
-          return;
-        }
-
-        {
-          RenderLock lock(*this);
-          nextPageNumber = 0;
-          currentSpineIndex = nextLongPressed ? currentSpineIndex + 1 : currentSpineIndex - 1;
-          section.reset();
-        }
-        requestUpdate();
-        return;
-      }
-
-      if (frontLongPressChangesFont) {
-        if (ReaderUtils::changeReaderFontSizeWithFeedback(renderer, /*larger=*/nextLongPressed)) {
-          reindexCurrentSection();
-        }
-        return;
-      }
-
-      if (SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_FLIP) {
-        executeReaderQuickAction(CrossPointSettings::LONG_MENU_ROTATE_FLIP);
-        return;
-      }
-
-      const uint8_t newOrientation = nextLongPressed
-                                         ? ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/false)
-                                         : ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/true);
-      applyOrientation(newOrientation);
-      requestUpdate();
-      return;
-    }
   }
 
   auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
@@ -3678,53 +3608,7 @@ void EpubReaderActivity::loop() {
 
   if (handleEndOfBookPageTurn(nextTriggered)) return;
 
-  // Touch page turns deliberately ignore the physical-button long-press
-  // settings. Keep those saved settings intact for a later move back to a
-  // button device, but never let a held screen tap skip a chapter or rotate.
   const bool fromTouch = touch.prev || touch.next;
-  const unsigned long heldMs = fromTouch ? touch.heldMs : mappedInput.getHeldTime();
-  const bool longPress = !fromTilt && heldMs > ReaderUtils::SKIP_HOLD_MS;
-  const bool skipChapter =
-      !chordPageTurn && !fromTouch && longPress && SETTINGS.longPressButtonBehavior == CrossPointSettings::CHAPTER_SKIP;
-
-  // Don't skip chapter after screenshot
-  if (gpio.wasReleased(HalGPIO::BTN_POWER) && gpio.wasReleased(HalGPIO::BTN_DOWN)) {
-    return;
-  }
-
-  if (skipChapter) {
-    clearPendingManualPageTurns();
-    if (!nextTriggered && isAtBookStart()) return;
-    if (!nextTriggered && section && section->currentPage > 0) {
-      section->currentPage = 0;
-      requestUpdate();
-      return;
-    }
-
-    // We don't want to delete the section mid-render, so grab the semaphore
-    {
-      RenderLock lock(*this);
-      nextPageNumber = 0;
-      if (nextTriggered) {
-        currentSpineIndex++;
-      } else if (currentSpineIndex > 0) {
-        currentSpineIndex--;
-      }
-      section.reset();
-    }
-    requestUpdate();
-    return;
-  }
-
-  if (!chordPageTurn && !fromTouch && longPress && !fromSideBtn &&
-      SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_CHANGE) {
-    const uint8_t newOrientation =
-        nextTriggered ? (SETTINGS.orientation - 1 + SETTINGS.ORIENTATION_COUNT) % SETTINGS.ORIENTATION_COUNT
-                      : (SETTINGS.orientation + 1) % SETTINGS.ORIENTATION_COUNT;
-    applyOrientation(newOrientation);
-    requestUpdate();
-    return;
-  }
 
   // No current section, attempt to rerender the book
   if (!section) {
@@ -3905,7 +3789,7 @@ void EpubReaderActivity::handleClippingJump(const ClippingJumpResult& clipping) 
 
 #if CROSSINK_APP_CAP_TOUCH
 bool EpubReaderActivity::handlePinchFontResize() {
-  if (!SETTINGS.pinchFontResizeEnabled || !SETTINGS.touchReaderControls || !mappedInput.supportsMultiTouch()) {
+  if (!SETTINGS.pinchFontResizeEnabled || !mappedInput.supportsMultiTouch()) {
     resetPinchFontGesture();
     return false;
   }
@@ -3943,8 +3827,7 @@ bool EpubReaderActivity::handleTwoFingerRotation(const bool clockwise) {
 }
 
 bool EpubReaderActivity::handleTouchDictionaryLookup() {
-  if (!SETTINGS.touchReaderControls || !mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview ||
-      !epub) {
+  if (!mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview || !epub) {
     return false;
   }
 
@@ -5410,6 +5293,9 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       applyOrientation(ReaderUtils::flippedOrientation(SETTINGS.orientation));
       requestUpdate();
       break;
+    case CrossPointSettings::LONG_MENU_TOGGLE_PAGE_TURN_GESTURES:
+      handleGlobalPowerButtonAction(CrossPointSettings::TOGGLE_PAGE_TURN_GESTURES);
+      break;
     case CrossPointSettings::LONG_MENU_SELECT_CHAPTER:
       if (epub) {
         mappedInput.suppressNextConfirmRelease();
@@ -5534,6 +5420,7 @@ bool EpubReaderActivity::handleShortcutAction(const uint8_t rawAction) {
       return handleGlobalPowerButtonAction(action);
     case CrossPointSettings::SHORT_PWRBTN::QUICK_LOCK:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       return handleGlobalPowerButtonAction(action);
     case CrossPointSettings::SHORT_PWRBTN::SLEEP:
@@ -5631,6 +5518,7 @@ bool EpubReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PW
     case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
       return handleGlobalPowerButtonAction(action);
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       return handleGlobalPowerButtonAction(action);
     default:
@@ -5840,6 +5728,7 @@ bool EpubReaderActivity::executeShortPowerButtonAction() {
     case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
       return handleGlobalPowerButtonAction(static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.shortPwrBtn));
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
+    case CrossPointSettings::SHORT_PWRBTN::TOGGLE_PAGE_TURN_GESTURES:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       // The global dispatcher pauses briefly after wake, so retain the reader
       // fallback for that first release and use the configured short action.
@@ -7935,8 +7824,7 @@ void EpubReaderActivity::buildFootnoteTouchTargets(const Page& page, const int f
 }
 
 bool EpubReaderActivity::handleTouchFootnoteLink(const int touchX, const int touchY) {
-  if (!SETTINGS.touchReaderControls || !mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview ||
-      currentPageFootnotes.empty()) {
+  if (!mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview || currentPageFootnotes.empty()) {
     return false;
   }
 
