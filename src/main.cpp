@@ -1472,6 +1472,8 @@ void setup() {
   bool allowFastInitialReaderRefresh = false;
   bool x4WakeCanFastPaint = false;
   bool x3WakeNeedsRefresh = false;
+  // A retained page is useful opening feedback even when a fast refresh is unavailable.
+  bool quickResumeFrameVisible = false;
 
   setupDisplayAndFonts(SleepWakePolicy::shouldInitializeSeamlessly(resume, isUc8279X3, hasValidSleepFrame),
                        resume != BootResume::Network, useReaderRenderStack);
@@ -1496,6 +1498,7 @@ void setup() {
       APP_STATE.showBootScreen = true;
       APP_STATE.saveToFile();
       if (shouldRestoreSleepFrame && loadSleepFrameBuffer()) {
+        quickResumeFrameVisible = true;
         if (gpio.deviceIsX3()) {
           // begin() clears the X3 controller RAM. Restore the saved frame as
           // the baseline for the first reader paint without refreshing the panel.
@@ -1641,7 +1644,7 @@ void setup() {
     APP_STATE.openEpubPath = "";
     APP_STATE.readerActivityLoadCount++;
     APP_STATE.saveToFile();
-    activityManager.goToReader(path, false, allowFastInitialReaderRefresh);
+    activityManager.goToReader(path, false, allowFastInitialReaderRefresh, false, quickResumeFrameVisible);
   }
 
   if (resume == BootResume::Silent || resume == BootResume::Network) {

@@ -187,7 +187,8 @@ void ReaderActivity::onEnter() {
     return;
   }
 
-  openingFeedback.start();
+  // Quick Resume already shows the book page. A loading notice would blank it.
+  if (!keepWakeFrame) openingFeedback.start();
 
   if (isImagePreviewFile(initialBookPath)) {
     GUI.drawPopup(renderer, tr(STR_LOADING));
