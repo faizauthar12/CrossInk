@@ -68,8 +68,8 @@ def prepare_fs(temp_root: Path, book: Path) -> str:
 def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: bool = False) -> Path:
     """Copy immutable producer bytes into a disposable mock, or make local fixtures.
 
-    Preserve full snapshot paths for companions; keep only one stable catalog
-    per kind at the legacy catalog lookup path. Never mutate
+    Preserve full snapshot paths for companions and provide scoped translation
+    discovery for the running firmware. Never mutate
     the supplied snapshot and never qualify TLS/publication with this transport.
     """
     mock = temp_root / "asset-http-mock"
@@ -193,6 +193,18 @@ def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: 
                 expected.parent.mkdir(exist_ok=True)
                 expected.write_text("source/TEST-ONLY.txt\nnotices.json\nsources.json\n")
         print("Asset smoke uses disposable working-source fixtures, not a release snapshot", flush=True)
+    translation_file = mock / "translation.json"
+    if translation_file.is_file():
+        from generate_language_template import generate
+        from publish_language_assets import catalog_key
+        contract = json.loads(generate("simulator-local-fixture")["language-template.json"])
+        # Obsolete-snapshot tests intentionally serve mismatched bytes at the
+        # running firmware's lookup path, so parser rejection is still exercised.
+        lookup = dict(json.loads(translation_file.read_bytes()),
+                      source=contract["englishSourceSha256"], keyset=contract["keysetSha256"])
+        destination = mock / catalog_key(lookup)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(translation_file, destination)
     return mock
 
 

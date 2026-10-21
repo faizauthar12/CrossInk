@@ -213,10 +213,9 @@ void AssetDownloadActivity::fetch() {
     showError(StrId::STR_MEMORY_ERROR, Pending::Exit);
     return;
   }
-  char relative[64];
-  std::snprintf(relative, sizeof(relative), "catalogs/%s/%s.json", rc ? "rc" : "stable",
-                kind_ == AssetCatalog::Kind::Hyphenation ? "hyphenation" : "translation");
-  bool valid = AssetDownloadService::buildUrl(catalogEndpoints_, relative, url_, sizeof(url_));
+  char relative[AssetCatalog::MAX_CATALOG_PATH];
+  bool valid = AssetCatalog::catalogPath(parserOptions, relative, sizeof(relative)) &&
+               AssetDownloadService::buildUrl(catalogEndpoints_, relative, url_, sizeof(url_));
   if (valid) {
     HttpDownloader::DownloadOptions options;
     options.maxBytes = AssetCatalog::MAX_CATALOG_BYTES;

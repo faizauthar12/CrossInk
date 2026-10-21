@@ -81,8 +81,13 @@ edited or is not an official copy, you are asked before it is replaced; the old
 contents are discarded after successful publication. Cancel is selected first. Conflicting same-code files or case-only filename
 collisions must be resolved before downloading. No permanent backup is promised.
 
-Online translations must match the firmware's source and string contract. Updating
-or downgrading firmware may make a catalog incompatible; manual SD files retain
+Online translations must match the firmware's source and string contract. Builds
+with compatibility-based discovery request a catalog for their own contract, so
+older firmware can keep downloading matching packs after newer packs are
+published. Catalog entries for languages a build does not support are checked and
+ignored. Firmware predating that lookup continues to use the preserved legacy
+catalog; other incompatible older builds need an update or manual SD installation.
+Manual SD files retain
 their existing English-fallback behavior. Menu language and the language selected
 from EPUB metadata remain independent.
 

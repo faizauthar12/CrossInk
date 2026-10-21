@@ -148,3 +148,6 @@ add_subdirectory(asset_companion_store)
 add_subdirectory(http_header)
 
 add_subdirectory(swipe_delete)
+
+add_test(NAME LanguageAssetPublicationRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_language_asset_publication.py)
