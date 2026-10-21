@@ -620,7 +620,7 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
 // 110 common entries, plus Publisher Fonts on scalable-font builds and four
-// edge gestures on touch devices; getBaseSettingsCapacity() adds the two runtime IMU entries.
+// edge gestures on touch devices; getBaseSettingsCapacity() adds the three runtime IMU entries.
 #if CROSSINK_SCALABLE_FONTS
 inline constexpr size_t BASE_SETTINGS_CAPACITY = 111 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0);
 #else
@@ -628,7 +628,7 @@ inline constexpr size_t BASE_SETTINGS_CAPACITY = 110 + (CROSSINK_APP_CAP_TOUCH ?
 #endif
 
 inline size_t getBaseSettingsCapacity() {
-  return BASE_SETTINGS_CAPACITY + (QuickActions::supportsTiltPageTurn() ? 2 : 0);
+  return BASE_SETTINGS_CAPACITY + (QuickActions::supportsTiltPageTurn() ? 3 : 0);
 }
 
 const std::vector<SettingInfo>& getBaseSettingsList();
@@ -895,13 +895,15 @@ inline bool hasSideButtonChordSetting(const std::vector<SettingInfo>& allSetting
 inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vector<SettingInfo>& allSettings) {
   const bool hasTiltPageTurnSetting = hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN);
   const bool hasTiltPageTurnDirectionSetting = hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
+  const bool hasTiltNextPageOnlySetting = hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY);
   const bool hasTapsGestures = hasSettingByName(allSettings, StrId::STR_NEXT_PAGE);
   const bool hasFrontButtons = deviceHasFrontButtons();
   const bool hasHomeKey = gpio.hasHomeKey();
 
   std::vector<SettingInfo> settings;
   settings.reserve(3 + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 2u : 0u) + (hasTiltPageTurnSetting ? 1u : 0u) +
-                   (hasTiltPageTurnDirectionSetting ? 1u : 0u) + (hasTapsGestures ? 1u : 0u));
+                   (hasTiltPageTurnDirectionSetting ? 1u : 0u) + (hasTiltNextPageOnlySetting ? 1u : 0u) +
+                   (hasTapsGestures ? 1u : 0u));
   if (hasHomeKey) {
     settings.push_back(SettingInfo::Submenu(StrId::STR_HOME_BUTTON, SettingAction::ControlsHomeButton));
   }
@@ -916,6 +918,7 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   }
   if (hasTiltPageTurnSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN);
   if (hasTiltPageTurnDirectionSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
+  if (hasTiltNextPageOnlySetting) addSettingByName(settings, allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY);
   if (hasFrontButtons) addSettingByKey(settings, allSettings, "menuNavigation");
   return settings;
 }

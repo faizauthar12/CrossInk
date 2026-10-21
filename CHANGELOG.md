@@ -36,6 +36,7 @@
 - Assign Rotate Page 180° to Power, Home, front-button long presses, and button chords as well as side buttons, from device or web settings.
 - Assign separate front Left and Right long-press shortcuts, with the same actions as side buttons. Existing shared assignments migrate automatically.
 - Pause and resume page-turn taps and swipes with the Disable Page Turn Gestures shortcut, without changing menu access or other touch gestures.
+- Enable Tilt: Next Page Only in Controls to advance a page with either tilt direction on supported devices.
 
 ### Fixed
 

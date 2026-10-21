@@ -439,7 +439,7 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
         auto insertPos = v.insert(shortPowerButtonIt + 1,
                                   SettingInfo::Toggle(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
                                                       "tiltPageTurn", StrId::STR_CAT_CONTROLS));
-        v.insert(
+        insertPos = v.insert(
             insertPos + 1,
             SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN_DIRECTION, &CrossPointSettings::tiltPageTurnDirection,
 #if CROSSINK_APP_DEVICE_X4CLASSIC || defined(SIMULATOR_DEVICE_X4_CLASSIC)
@@ -452,6 +452,9 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                                StrId::STR_TILT_DIRECTION_FORWARD_BACK, StrId::STR_TILT_DIRECTION_FORWARD_BACK_INVERTED},
 #endif
                               "tiltPageTurnDirection", StrId::STR_CAT_CONTROLS));
+        v.insert(insertPos + 1,
+                 SettingInfo::Toggle(StrId::STR_TILT_NEXT_PAGE_ONLY, &CrossPointSettings::tiltNextPageOnly,
+                                     "tiltNextPageOnly", StrId::STR_CAT_CONTROLS));
       }
     } else {
       for (auto& setting : v) {

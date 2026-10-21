@@ -1740,6 +1740,86 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Simulator smoke test passed: Rotate Page 180 shortcut pickers and EPUB/TXT handlers");
   }
 
+  static void verifyTiltPageTurnSettings() {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    const auto all = getSettingsList();
+    const auto controls = buildControlsSettingsParentList(all);
+    const auto verifyRows = [](const std::vector<SettingInfo>& rows) {
+      const auto direction = std::find_if(rows.begin(), rows.end(), [](const SettingInfo& setting) {
+        return settingKeyIs(setting, "tiltPageTurnDirection");
+      });
+      const auto nextOnly = std::find_if(rows.begin(), rows.end(), [](const SettingInfo& setting) {
+        return settingKeyIs(setting, "tiltNextPageOnly");
+      });
+      if (!QuickActions::supportsTiltPageTurn()) {
+        if (direction != rows.end() || nextOnly != rows.end()) fail("Tilt settings exposed without a gyroscope");
+        return;
+      }
+      if (direction == rows.end() || nextOnly == rows.end() || nextOnly != direction + 1 ||
+          nextOnly->type != SettingType::TOGGLE || nextOnly->nameId != StrId::STR_TILT_NEXT_PAGE_ONLY ||
+          nextOnly->valuePtr != &CrossPointSettings::tiltNextPageOnly ||
+          std::count_if(rows.begin(), rows.end(),
+                        [](const SettingInfo& setting) { return settingKeyIs(setting, "tiltNextPageOnly"); }) != 1)
+        fail("Tilt Next Page Only row order, binding, or availability mismatch");
+    };
+    verifyRows(all);
+    verifyRows(controls);
+    if (!QuickActions::supportsTiltPageTurn()) {
+      LOG_INF("SMOKE", "Simulator smoke test passed: tilt settings hidden without a gyroscope");
+      return;
+    }
+    if (SETTINGS.tiltNextPageOnly != 0) fail("Tilt Next Page Only must default to Off");
+
+    SETTINGS.tiltNextPageOnly = 1;
+    if (!SETTINGS.saveToFile()) fail("Cannot save tilt preference");
+    SETTINGS.tiltNextPageOnly = 0;
+    if (!SETTINGS.loadFromFile() || SETTINGS.tiltNextPageOnly != 1) fail("Tilt preference did not reload from disk");
+    JsonDocument saved;
+    SETTINGS.toJson(saved);
+    SETTINGS.tiltNextPageOnly = 0;
+    SETTINGS.fromJson(saved.as<JsonVariantConst>());
+    if (SETTINGS.tiltNextPageOnly != 1) fail("Tilt preference did not survive JSON export/import");
+    saved.remove("tiltNextPageOnly");
+    SETTINGS.fromJson(saved.as<JsonVariantConst>());
+    if (SETTINGS.tiltNextPageOnly != 0) fail("Old settings export must restore bidirectional tilt");
+    saved["tiltNextPageOnly"] = 255;
+    SETTINGS.fromJson(saved.as<JsonVariantConst>());
+    if (SETTINGS.tiltNextPageOnly != 0) fail("Invalid tilt preference did not fall back to Off");
+
+    // Activate the actual Controls row, then reload its saved value.
+    SETTINGS.menuNavigation = CrossPointSettings::MENU_NAV_DIRECTIONAL;
+    SETTINGS.tiltPageTurn = 1;
+    RenderLock lock;
+    SettingsActivity editor(renderer, mappedInputManager);
+    editor.onEnter();
+    const auto press = [&](MappedInputManager::Button button) {
+      mappedInputManager.simulatorInjectRelease(button);
+      editor.loop();
+      mappedInputManager.simulatorClearInputFrame();
+    };
+    press(MappedInputManager::Button::Confirm);
+    press(MappedInputManager::Button::Confirm);
+    if (editor.simulatorCategoryIndex() != 2) fail("Cannot reach Controls for tilt preference");
+    const auto row = std::find_if(controls.begin(), controls.end(),
+                                  [](const SettingInfo& setting) { return settingKeyIs(setting, "tiltNextPageOnly"); });
+    for (size_t i = 0; i <= static_cast<size_t>(row - controls.begin()); ++i)
+      press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+    editor.render(std::move(lock));
+    captureStatusBarScreen("tilt-next-page-only-off");
+    press(MappedInputManager::Button::Confirm);
+    if (SETTINGS.tiltNextPageOnly != 1) fail("Controls row did not enable Next Page Only");
+    editor.render(std::move(lock));
+    captureStatusBarScreen("tilt-next-page-only-on");
+    SETTINGS.tiltNextPageOnly = 0;
+    if (!SETTINGS.loadFromFile() || SETTINGS.tiltNextPageOnly != 1)
+      fail("Controls row did not persist tilt preference");
+    editor.onExit();
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    if (!SETTINGS.saveToFile()) fail("Cannot restore tilt test settings");
+    LOG_INF("SMOKE", "Simulator smoke test passed: tilt settings order, device toggle, disk and JSON persistence");
+  }
+
   static void verifyReaderControlsSettings() {
     const auto all = getSettingsList();
     const auto controls = buildControlsSettingsParentList(all);
@@ -5944,6 +6024,10 @@ class SimulatorSmokeTest {
           activityManager.replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInputManager));
           queueStep("Frontlight layout Home", SmokeStep::FrontlightLayout, 4);
           break;
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_TILT_SETTINGS")) {
+          verifyTiltPageTurnSettings();
+          std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_ROTATE_SHORTCUTS")) {
           verifyRotateShortcutPickers();

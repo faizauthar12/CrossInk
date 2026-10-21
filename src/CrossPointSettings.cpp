@@ -596,10 +596,12 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       continue;
     }
 
-    // Older exports have no global status font size. Importing one must restore
-    // the original Small header, even if this session previously selected Large.
-    const uint8_t fieldDefault =
-        info.valuePtr == &CrossPointSettings::displayStatusBarTextSize ? 0 : this->*(info.valuePtr);
+    // Missing keys in older exports restore the original status font size and
+    // bidirectional tilt behavior, even if this session changed them.
+    const uint8_t fieldDefault = info.valuePtr == &CrossPointSettings::displayStatusBarTextSize ||
+                                         info.valuePtr == &CrossPointSettings::tiltNextPageOnly
+                                     ? 0
+                                     : this->*(info.valuePtr);
     uint8_t value = doc[info.key] | fieldDefault;
     if (strcmp(info.key, "sdFontSizeRange") == 0 && value == SD_FONT_RANGE_NO_EMOJI_LEGACY) {
       value = SD_FONT_RANGE_ALL;

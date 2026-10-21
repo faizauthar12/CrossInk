@@ -13,6 +13,7 @@
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
 #include "ReaderStatusBarTapTarget.h"
+#include "ReaderTiltPageTurn.h"
 #include "components/UITheme.h"
 
 namespace ReaderUtils {
@@ -232,8 +233,7 @@ inline bool isTouchMenuDismissGesture(const MappedInputManager& input) {
 }
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
-  const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
-  const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
+  const auto tilt = detectReaderTiltPageTurn(halTiltSensor, SETTINGS.tiltPageTurn, SETTINGS.tiltNextPageOnly);
 
   const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
@@ -245,7 +245,7 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool frontNext = input.wasReleased(MappedInputManager::Button::Right) || powerTurn;
 
   // Side-button actions are resolved by ReaderButtonShortcuts in each reader.
-  return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
+  return {tilt.prev || frontPrev, tilt.next || frontNext, false, tilt.prev || tilt.next};
 }
 
 // One helper, blocking or deferred: the async form starts the refresh and

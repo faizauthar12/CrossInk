@@ -339,6 +339,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_recovery:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_RECOVERY"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
+        if args.tilt_settings:
+            env["CROSSINK_SIMULATOR_SMOKE_TILT_SETTINGS"] = "1"
         if args.receive_folder:
             env["CROSSINK_SIMULATOR_SMOKE_RECEIVE_FOLDER"] = "1"
         if args.receive_folder_captures:
@@ -458,6 +460,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
                         help="PlatformIO simulator environment to build and run")
     parser.add_argument("--status-bar-lifecycle", action="store_true", help="Exercise reader settings return and reflow")
+    parser.add_argument("--tilt-settings", action="store_true", help="Check tilt preference visibility, device editing and persistence")
     parser.add_argument("--chapter-percentage", action="store_true", help="Check chapter percentage slot selection, removal, reload and rendered formats")
     parser.add_argument("--status-bar-feature", action="store_true", help="Check status bar visibility, independent sizes, disk reload and rendered theme/orientation matrix")
     parser.add_argument("--screen-calibration", action="store_true", help="Check screen calibration button/touch editing, save, cancel, reset and rotations")
