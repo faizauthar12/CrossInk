@@ -1913,6 +1913,24 @@ class SimulatorSmokeTest {
     }
     JsonDocument original;
     SETTINGS.toJson(original);
+    for (const bool importingCrossPoint : {false, true}) {
+      for (uint8_t spacing = 0; spacing <= CrossPointSettings::MAX_WORD_SPACING; ++spacing) {
+        JsonDocument savedSpacing;
+        savedSpacing["wordSpacing"] = spacing;
+        SETTINGS.fromJson(savedSpacing.as<JsonVariantConst>(), importingCrossPoint);
+        if (SETTINGS.wordSpacing != spacing) fail("CrossInk word spacing changed during settings load");
+      }
+    }
+    JsonDocument crossPointSpacing;
+    crossPointSpacing["wordSpacing"] = 100;
+    SETTINGS.fromJson(crossPointSpacing.as<JsonVariantConst>(), true);
+    if (SETTINGS.wordSpacing != 0) fail("CrossPoint normal word spacing did not migrate to level 0");
+    JsonDocument migratedSpacing;
+    SETTINGS.toJson(migratedSpacing);
+    SETTINGS.wordSpacing = 4;
+    SETTINGS.fromJson(migratedSpacing.as<JsonVariantConst>());
+    if (SETTINGS.wordSpacing != 0) fail("Migrated word spacing did not survive reload");
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
     for (uint8_t mode = 0; mode <= CrossPointSettings::PAGE_TURN_GESTURE_DISABLED; ++mode) {
       JsonDocument legacy;
       legacy["pageTurnGesture"] = mode;
@@ -1989,12 +2007,14 @@ class SimulatorSmokeTest {
     crossInkSettings["pageTurnGesture"] = CrossPointSettings::TAP_ONLY;
     crossInkSettings["previousPageGesture"] = CrossPointSettings::SWIPE_ONLY;
     crossInkSettings["disableReaderTouchscreen"] = 0;
+    crossInkSettings["wordSpacing"] = 4;
     String crossInkJson;
     serializeJson(crossInkSettings, crossInkJson);
 
     JsonDocument crossPointSettings;
     crossPointSettings["touchReaderControls"] = 2;
     crossPointSettings["disableReaderTouchscreen"] = 1;
+    crossPointSettings["wordSpacing"] = 100;
     String crossPointJson;
     serializeJson(crossPointSettings, crossPointJson);
 
@@ -2007,7 +2027,7 @@ class SimulatorSmokeTest {
     SETTINGS.previousPageGesture = CrossPointSettings::PAGE_TURN_GESTURE_DISABLED;
     if (!SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
-        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY) {
+        SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || SETTINGS.wordSpacing != 4) {
       fail("CrossInk settings file did not take precedence over CrossPoint settings");
     }
 
@@ -2031,9 +2051,19 @@ class SimulatorSmokeTest {
     if (!SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen ||
         SETTINGS.pageTurnGesture != CrossPointSettings::TAP_ONLY ||
         SETTINGS.previousPageGesture != CrossPointSettings::SWIPE_ONLY || !Storage.exists(crossInkSettingsPath) ||
-        Storage.exists(CROSSINK_SETTINGS_FILE_BAK)) {
+        Storage.exists(CROSSINK_SETTINGS_FILE_BAK) || SETTINGS.wordSpacing != 4) {
       fail("Interrupted CrossInk settings save did not recover before CrossPoint import");
     }
+
+    if (!Storage.remove(crossInkSettingsPath)) fail("Could not remove CrossInk settings migration fixture");
+    if (!SETTINGS.loadFromFile() || SETTINGS.wordSpacing != 0 || !Storage.exists(crossInkSettingsPath)) {
+      fail("CrossPoint word spacing file migration failed");
+    }
+    SETTINGS.wordSpacing = 4;
+    if (!SETTINGS.loadFromFile() || SETTINGS.wordSpacing != 0) {
+      fail("Migrated word spacing was not saved to CrossInk settings");
+    }
+    LOG_INF("SMOKE", "CrossPoint word spacing migration and CrossInk spacing preservation passed");
 
     if (hadCrossInkSettings) {
       if (!Storage.writeFile(crossInkSettingsPath, savedCrossInkSettings)) fail("Could not restore CrossInk settings");
