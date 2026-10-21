@@ -619,9 +619,13 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
-// 111 common entries. Four edge gesture entries are compiled only for touch
-// devices; getBaseSettingsCapacity() adds the two runtime IMU entries.
+// 110 common entries, plus Publisher Fonts on scalable-font builds and four
+// edge gestures on touch devices; getBaseSettingsCapacity() adds the two runtime IMU entries.
+#if CROSSINK_SCALABLE_FONTS
 inline constexpr size_t BASE_SETTINGS_CAPACITY = 111 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0);
+#else
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 110 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0);
+#endif
 
 inline size_t getBaseSettingsCapacity() {
   return BASE_SETTINGS_CAPACITY + (QuickActions::supportsTiltPageTurn() ? 2 : 0);

@@ -367,9 +367,9 @@ class SettingsActivity final : public Activity {
   void simulatorOpenFrontButtons();
   int simulatorCategoryIndex() const { return selectedCategoryIndex; }
   int simulatorSelectedIndex() const { return selectedSettingIndex; }
+  bool simulatorOptionPopupActive() const { return optionPopup.isActive(); }
 #if CROSSINK_SCALABLE_FONTS
   const std::vector<std::string>& simulatorFilenameFontNames() const { return filenameFontNames; }
-  bool simulatorOptionPopupActive() const { return optionPopup.isActive(); }
 #endif
   freeink::ui::Rect simulatorSafeRect() const { return app.device().safeRect(); }
   SettingAction simulatorActiveSubmenu() const { return activeSubmenu; }

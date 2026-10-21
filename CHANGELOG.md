@@ -102,7 +102,6 @@
 - Avoid extra temporary allocations when navigating Home’s cover grid (adapted from Sung-jin Brian Hong, CrossPoint #3848).
 - Clear the retained sleep image when X3 wakes to Home without a restored Quick Resume frame, including with Sunlight Fading Fix enabled.
 - Restore Touch Reader Controls in Settings → Controls → Taps & Gestures so reader touch gestures can be re-enabled on the device after being turned off in the web portal (#871).
-
 - Show all button shortcut settings on the web portal, including option lists too long for the previous response buffer.
 
 ### Changed
