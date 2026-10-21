@@ -19,6 +19,7 @@
 #include "BookStatsTracking.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "EpubReaderPercentSelectionActivity.h"
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
 #include "QuickActions.h"
@@ -27,6 +28,7 @@
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
 #include "XtcReaderMenuActivity.h"
+#include "XtcReaderNavigation.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
@@ -871,6 +873,36 @@ void XtcReaderActivity::openChapterSelection() {
   });
 }
 
+void XtcReaderActivity::openPercentSelection() {
+  pauseReadingStatsTimer("percent_selection");
+  float progress = 0.0f;
+  {
+    RenderLock lock(*this);
+    if (xtc) progress = getCurrentBookProgressPercent();
+  }
+  auto selection = makeUniqueNoThrow<EpubReaderPercentSelectionActivity>(renderer, mappedInput, progress);
+  if (!selection) {
+    LOG_ERR("XTR", "OOM: percent selection activity");
+    resumeReadingStatsTimer("percent_selection_oom");
+    requestUpdate();
+    return;
+  }
+  mappedInput.suppressNextConfirmRelease();
+  mappedInput.suppressNextPowerRelease();
+  mappedInput.suppressNextPowerConfirmRelease();
+  startActivityForResult(std::move(selection), [this](const ActivityResult& result) {
+    const auto* percent = std::get_if<PercentResult>(&result.data);
+    if (!result.isCancelled && percent) {
+      RenderLock lock(*this);
+      if (xtc && xtc->getPageCount() > 0) {
+        currentPage = xtcPageForPercent(percent->percent, xtc->getPageCount());
+      }
+    }
+    resumeReadingStatsTimer("percent_selection_return");
+    requestUpdate();
+  });
+}
+
 void XtcReaderActivity::openReadingStats() {
   if (!statsTrackingActive) return;
   auto bookStats = createFrontlightReadingStatsActivity();
@@ -942,6 +974,9 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
   switch (static_cast<XtcReaderMenuActivity::MenuAction>(action)) {
     case XtcReaderMenuActivity::MenuAction::SELECT_CHAPTER:
       openChapterSelection();
+      break;
+    case XtcReaderMenuActivity::MenuAction::GO_TO_PERCENT:
+      openPercentSelection();
       break;
     case XtcReaderMenuActivity::MenuAction::READING_STATS:
       openReadingStats();
