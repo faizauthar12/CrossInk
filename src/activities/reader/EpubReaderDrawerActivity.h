@@ -52,6 +52,7 @@ class EpubReaderDrawerActivity final : public Activity {
   void setChapterTitle(std::string title) { chapterTitle = std::move(title); }
 
 #ifdef SIMULATOR
+  friend struct ReaderDrawerLayoutSmokeTest;
   freeink::ui::Rect simulatorHandleRect() const { return drawerHandleRect; }
   const ReaderDrawerState& simulatorState() const { return state; }
   bool simulatorFocusedRowVisible() const {
@@ -216,7 +217,7 @@ class EpubReaderDrawerActivity final : public Activity {
   void renderSamplePreviewText(const ReaderSettingsDraft& settings, int fontId);
   void buildTabBar(UiApp::ScreenType& screen, freeink::ui::Rect rect, bool drawBottomRule);
   void buildPaneHeader(UiApp::ScreenType& screen);
-  void buildRootRows(UiApp::ScreenType& screen);
+  void buildRows(UiApp::ScreenType& screen);
   void buildSimplePane(UiApp::ScreenType& screen);
   void buildCharacterSpacingPane(UiApp::ScreenType& screen);
   void buildSpacingPane(UiApp::ScreenType& screen);

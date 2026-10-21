@@ -217,6 +217,112 @@ struct EpubReaderCompletionSmokeTest {
 };
 std::optional<uint32_t> EpubReaderCompletionSmokeTest::statusAnchor;
 
+struct ReaderDrawerLayoutSmokeTest {
+  template <typename Capture>
+  static bool verify(RenderLock& lock, const Capture& capture) {
+    namespace fui = freeink::ui;
+    const auto savedScale = SETTINGS.uiScale;
+    const auto savedOrientation = renderer.getOrientation();
+    bool valid = true;
+    for (const auto orientation :
+         {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise, GfxRenderer::LandscapeCounterClockwise}) {
+      renderer.setOrientation(orientation);
+      for (uint8_t scale = 0; scale < CrossPointSettings::UI_SCALE_COUNT; ++scale) {
+        SETTINGS.uiScale = scale;
+        EpubReaderDrawerActivity editor(renderer, mappedInputManager, {}, nullptr, 0.0f, 0, 0, false, false, false,
+                                        false, false, false, false, false, true, true, 0, 0, 5, false);
+        editor.onEnter();
+        editor.openPane(ReaderDrawerPane::ReaderFont);
+        valid &= editor.paneRows.size() == 4;  // This regression needs an installed TTF family.
+        const auto stem = "reader-font-o-" + std::to_string(orientation) + "-scale-" + std::to_string(scale);
+        const auto checkRows = [&]() {
+          fui::Interaction tab;
+          if (!editor.app.hitPublished(renderer.getScreenWidth() / 10, renderer.getScreenHeight() - 28,
+                                       editor.ACTION_TAB, tab))
+            return false;
+          bool found = false;
+          for (int y = 0; y < renderer.getScreenHeight(); ++y) {
+            fui::Interaction row;
+            if (!editor.app.hitPublished(renderer.getScreenWidth() / 2, y, editor.ACTION_ROW, row)) continue;
+            found = true;
+            if (row.rect.bottom() > tab.rect.y) {
+              LOG_ERR("SMOKE", "Reader row %d ends at %d, past navigation at %d", row.value, row.rect.bottom(),
+                      tab.rect.y);
+              return false;
+            }
+          }
+          return found;
+        };
+        renderer.clearScreen();
+        editor.render(std::move(lock));
+        valid &= checkRows();
+        capture(stem + "-top");
+#if CROSSINK_APP_CAP_TOUCH
+        if (editor.visibleRows < static_cast<int>(editor.paneRows.size())) {
+          const int x = renderer.getScreenWidth() / 2;
+          const int y = renderer.getScreenHeight() - 100;
+          mappedInputManager.simulatorInjectTouchDown(x, y);
+          editor.loop();
+          mappedInputManager.simulatorClearInputFrame();
+          mappedInputManager.simulatorInjectTouchRelease(x, y - 100);
+          editor.loop();
+          mappedInputManager.simulatorClearInputFrame();
+          editor.render(std::move(lock));
+          valid &= checkRows() && editor.state.paneTopIndex > 0;
+          capture(stem + "-swipe");
+          editor.scrollBy(-100);
+          editor.render(std::move(lock));
+        }
+#endif
+        // Traverse the production button path to bring the final row into view.
+        for (int i = 0; i < 3; ++i) {
+          mappedInputManager.simulatorInjectRelease(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+          editor.loop();
+          mappedInputManager.simulatorClearInputFrame();
+          editor.render(std::move(lock));
+          valid &= checkRows() && editor.simulatorFocusedRowVisible();
+        }
+        capture(stem + "-last");
+        // Find the published TTF target and activate it through touch routing.
+        fui::Interaction ttf;
+        bool foundTtf = false;
+        for (int y = 0; y < renderer.getScreenHeight(); ++y) {
+          if (editor.app.hitPublished(renderer.getScreenWidth() / 2, y, editor.ACTION_ROW, ttf) && ttf.value == 3) {
+            foundTtf = true;
+            break;
+          }
+        }
+        valid &= foundTtf;
+#if CROSSINK_APP_CAP_TOUCH
+        if (foundTtf) {
+          const int x = ttf.rect.x + ttf.rect.width / 2;
+          const int y = ttf.rect.y + ttf.rect.height / 2;
+          mappedInputManager.simulatorInjectTouchDown(x, y);
+          editor.loop();
+          mappedInputManager.simulatorClearInputFrame();
+          mappedInputManager.simulatorInjectTouchRelease(x, y);
+          editor.loop();
+          mappedInputManager.simulatorClearInputFrame();
+          valid &= editor.state.pane == ReaderDrawerPane::TtfRendering;
+          editor.render(std::move(lock));
+          valid &= checkRows();
+          capture(stem + "-ttf");
+          editor.scrollBy(100);
+          editor.render(std::move(lock));
+          valid &= checkRows() && editor.state.paneTopIndex ==
+                                      std::max(0, static_cast<int>(editor.paneRows.size()) - editor.visibleRows);
+          capture(stem + "-ttf-last");
+        }
+#endif
+        editor.onExit();
+      }
+    }
+    SETTINGS.uiScale = savedScale;
+    renderer.setOrientation(savedOrientation);
+    return valid;
+  }
+};
+
 // Detached activities exercise real popup callbacks and fixed/flowing readers
 // while the smoke runner holds the render mutex.
 struct StatusBarFeatureSmokeTest {
@@ -5948,6 +6054,18 @@ class SimulatorSmokeTest {
           break;
         }
 #if CROSSINK_SCALABLE_FONTS
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_READER_FONT_LAYOUT")) {
+          sdFontSystem.ensureRegistry();
+          const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY");
+          if (!family) fail("Reader Font layout requires a TTF family");
+          std::snprintf(SETTINGS.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName), "%s", family);
+          RenderLock lock;
+          if (!ReaderDrawerLayoutSmokeTest::verify(
+                  lock, [&](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
+            fail("Reader Font rows overlapped navigation or became unreachable");
+          LOG_INF("SMOKE", "Simulator smoke test passed: reader font layout");
+          std::_Exit(0);
+        }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_PUBLISHER_FONTS")) {
           verifyPublisherFonts();
           LOG_INF("SMOKE", "Simulator smoke test passed: publisher fonts");

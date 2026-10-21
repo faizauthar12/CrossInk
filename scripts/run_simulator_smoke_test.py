@@ -330,6 +330,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
         if args.font_family:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
+        if args.reader_font_layout:
+            env["CROSSINK_SIMULATOR_SMOKE_READER_FONT_LAYOUT"] = "1"
         if args.c3_font_sizes:
             env["CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES"] = "1"
         if args.font_size_book:
@@ -442,7 +444,11 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not complete the bitmap font-size checks", file=sys.stderr)
         return 2
 
-    if args.font_family and not args.c3_font_sizes:
+    if args.reader_font_layout and "Simulator smoke test passed: reader font layout" not in proc.stdout:
+        print("Simulator did not complete the Reader Font layout checks", file=sys.stderr)
+        return 2
+
+    if args.font_family and not args.c3_font_sizes and not args.reader_font_layout:
         tab_change = proc.stdout.find("Reader Menu tab changed after TTF Native selection")
         reader_return = proc.stdout.find("Reader restored after TTF Native selection", tab_change)
         if tab_change < 0 or reader_return < 0 or "Loading file:" not in proc.stdout[tab_change:reader_return]:
@@ -489,6 +495,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filename-font-captures", help="Directory for filename font framebuffer captures (PGM)")
     parser.add_argument("--font-recovery", action="store_true", help="Check reader selection recovery after font catalog memory pressure")
     parser.add_argument("--font-family", help="Exercise custom-font size and dictionary lifecycle")
+    parser.add_argument("--reader-font-layout", action="store_true", help="Check Reader Font row bounds, scrolling and TTF touch navigation across orientations and UI sizes (X4 Pro; requires --font-dir and --font-family)")
     parser.add_argument("--timeout", type=int, help="Seconds before the simulator run is treated as hung (default: 120, or 180 for frontlight layout, about, support export, or filename font checks)")
     parser.add_argument("--page-turns", type=int, default=2, help="Number of EPUB page-forward taps to run")
     parser.add_argument("--theme", choices=sorted(THEMES), help="UI theme to use during the smoke test")
@@ -509,6 +516,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window", dest="headless", action="store_false", help="Show the SDL window instead of using dummy video")
     parser.set_defaults(build=True, headless=True)
     args = parser.parse_args()
+    if args.reader_font_layout and (args.env != "x4-pro-simulator" or not args.font_dir or not args.font_family):
+        parser.error("--reader-font-layout requires --env x4-pro-simulator, --font-dir and --font-family")
     if (args.asset_snapshot or args.asset_hyphenation_only or args.asset_captures or args.asset_expect_translation_rejection or args.asset_empty_catalog or args.asset_save_failure) and not args.asset_downloads:
         parser.error("asset fixture/capture options require --asset-downloads")
     if args.asset_expect_translation_rejection and (args.asset_hyphenation_only or not args.asset_snapshot):

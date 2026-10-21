@@ -1014,7 +1014,8 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
 
   switch (state.pane) {
     case ReaderDrawerPane::Root:
-      buildRootRows(screen);
+      screen.spacer(DRAWER_LIST_TOP_PADDING);
+      buildRows(screen);
       break;
     case ReaderDrawerPane::CharacterSpacing:
       buildCharacterSpacingPane(screen);
@@ -1143,8 +1144,7 @@ int EpubReaderDrawerActivity::activeTopIndex() const {
   return state.pane == ReaderDrawerPane::Root ? state.rootTopIndex[static_cast<size_t>(state.tab)] : state.paneTopIndex;
 }
 
-void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
-  screen.spacer(DRAWER_LIST_TOP_PADDING);
+void EpubReaderDrawerActivity::buildRows(UiApp::ScreenType& screen) {
   const auto& rows = activeRows();
   const fui::Rect listBounds = screen.body();
   const bool buttonDevice = !mappedInput.hasTouchHardware();
@@ -1153,9 +1153,10 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
   const int16_t gap = buttonDevice ? static_cast<int16_t>(screen.theme().spaceMd * rowHeight / screen.theme().rowHeight)
                                    : screen.theme().spaceSm;
   visibleRows = std::max(1, readerDrawerVisibleRows(listBounds.height, rowHeight, gap));
-  int top = std::clamp<int>(state.rootTopIndex[static_cast<size_t>(state.tab)], 0,
-                            std::max(0, static_cast<int>(rows.size()) - visibleRows));
-  state.rootTopIndex[static_cast<size_t>(state.tab)] = static_cast<int16_t>(top);
+  auto& topIndex =
+      state.pane == ReaderDrawerPane::Root ? state.rootTopIndex[static_cast<size_t>(state.tab)] : state.paneTopIndex;
+  const int top = std::clamp<int>(topIndex, 0, std::max(0, static_cast<int>(rows.size()) - visibleRows));
+  topIndex = static_cast<int16_t>(top);
   const int displayedRows = std::min(visibleRows, static_cast<int>(rows.size()) - top);
   for (int i = 0; i < displayedRows; ++i) {
     const RowId row = rows[static_cast<size_t>(top + i)];
@@ -1173,7 +1174,7 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
     props.state = isReaderDrawerRowFocused(buttonFocusActive, state.selectedIndex, static_cast<int16_t>(top + i))
                       ? fui::StateSelected
                       : fui::StateNormal;
-    if (rowIsToggle(row)) {
+    if (state.pane == ReaderDrawerPane::Root && rowIsToggle(row)) {
       fui::ToggleRowProps toggle;
       toggle.row = props;
       toggle.checked = rowToggleValue(row);
@@ -1191,26 +1192,7 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
 
 void EpubReaderDrawerActivity::buildSimplePane(UiApp::ScreenType& screen) {
   buildPaneHeader(screen);
-  const auto& rows = activeRows();
-  const bool buttonDevice = !mappedInput.hasTouchHardware();
-  const int16_t rowHeight = buttonDevice ? uiListRowHeight(screen.theme(), UiListRowType::SingleLine) : 0;
-  for (size_t i = 0; i < rows.size(); ++i) {
-    char value[48] = {};
-    fui::SettingRowProps props;
-    props.label = rowLabel(rows[i]);
-    props.value = rowValue(rows[i], value, sizeof(value));
-    props.action = ACTION_ROW;
-    props.valueId = static_cast<int16_t>(i);
-    props.drawChevron = rowShowsNavigationCaret(rows[i]);
-    props.labelText = screen.theme().bodyText;
-    props.valueText = screen.theme().smallText;
-    if (buttonDevice) props.minTouchSize = rowHeight;
-    setDrawerSelectionStyle(props.styles);
-    props.state = isReaderDrawerRowFocused(buttonFocusActive, state.selectedIndex, static_cast<int16_t>(i))
-                      ? fui::StateSelected
-                      : fui::StateNormal;
-    screen.settingRow(props, rowHeight);
-  }
+  buildRows(screen);
 }
 
 void EpubReaderDrawerActivity::buildCharacterSpacingPane(UiApp::ScreenType& screen) {
