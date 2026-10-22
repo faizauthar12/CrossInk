@@ -24,6 +24,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/PluginEvents.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -106,6 +107,7 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  pluginevents::refreshSubscriptions();
   library::invalidateLibraryIndex();
   Activity::onExit();
 
@@ -156,6 +158,8 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
   const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";
+  } else if (mode == NetworkMode::OPDS_BROWSER) {
+    modeName = "OPDS Browser";
   } else if (mode == NetworkMode::CREATE_HOTSPOT) {
     modeName = "Create Hotspot";
   } else if (mode == NetworkMode::NEARBY_STATS_SYNC) {
@@ -201,6 +205,10 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     activityManager.replaceActivity(std::move(sync));
     return;
   }
+  if (mode == NetworkMode::OPDS_BROWSER) {
+    activityManager.goToBrowser();
+    return;
+  }
 
   networkMode = mode;
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);
@@ -228,6 +236,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
       case NetworkMode::USB_DRIVE:
         activityManager.goToUsbDrive();
         break;
+      case NetworkMode::OPDS_BROWSER:
       case NetworkMode::NEARBY_STATS_SYNC:
       case NetworkMode::NEARBY_BOOK_RECEIVE:
       case NetworkMode::SYNC_BOOKS:

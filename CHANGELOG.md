@@ -39,10 +39,11 @@
 - Enable Tilt: Next Page Only in Controls to advance a page with either tilt direction on supported devices.
 - Jump to a percentage in XTC and XTCH books from the reader menu, using the same slider and numeric keypad as EPUB books.
 
+- Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Enable Plugins in Settings → System, then open Plugins from Home. Download the optional Plugin Hub to discover, install, and update compatible plugins.
+
 ### Fixed
 
 - Keep font upload and delete feedback visible while scrolling on the web portal, including mobile, and prevent older notification timers from hiding newer messages (adapted from CrossPoint #3984).
-
 - Keep web dialogs open when a text-selection drag ends outside the dialog, while preserving backdrop clicks and upload-in-progress protection (adapted from Crestwave, CrossPoint #3931).
 - Normalize new web-upload filenames to composed Unicode (NFC), including duplicate checks, so accented filenames remain accessible across platforms (adapted from serialx, CrossPoint #3961).
 - Explain OPDS feed failures caused by credentials, withheld credentials across origins, server errors, or no response (adapted from Marco Rojas, CrossPoint #3872).
@@ -138,6 +139,7 @@
 - Install SD languages and hyphenation packs on PSRAM-equipped readers with small factory data partitions, including X4 Pro, using an SD cache loaded into PSRAM. Startup reuses an open cache file for sequential validation reads. The bootloader, partition table, and firmware slots remain unchanged.
 - Remove the redundant Touch Reader Controls setting from device and web settings; Disable Touchscreen remains the full reader touch lock.
 - Reduce temporary memory used to prepare SD-font character widths, while keeping the cache up to date as text changes (adapted from CrossPoint #3948).
+- Move OPDS Browser into File Transfer, keeping room for Plugins and Settings on Home.
 
 ## [v1.6.1] - 2026-10-03
 

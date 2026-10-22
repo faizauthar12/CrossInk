@@ -2,7 +2,12 @@
 
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
+#include <DeviceSecret.h>
 #include <FontFileTypes.h>
+#include <wolfssl/options.h>
+#include <wolfssl/wolfcrypt/hash.h>
+
+#include "util/FirmwareIdentity.h"
 #ifdef SIMULATOR
 #include <ArduinoJsonStringCompat.h>
 #endif
@@ -25,6 +30,7 @@
 #include "CrossPointSettings.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
+#include "ProtectedPaths.h"
 #include "QuickActions.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
@@ -36,6 +42,7 @@
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
 #include "html/LogoPng.generated.h"
+#include "html/PluginHostJs.generated.h"
 #include "html/SettingsPageHtml.generated.h"
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
@@ -49,6 +56,31 @@
 #include "util/StringUtils.h"
 
 namespace {
+// Arduino's WebServer retains parsed request arguments until the next request.
+// For JSON POSTs, that includes the complete "plain" body. Expose a narrowly
+// scoped release operation so large request bodies do not remain resident
+// between requests, and so outbound TLS can reuse that memory immediately.
+class CrossPointHttpServer final : public WebServer {
+ public:
+  explicit CrossPointHttpServer(uint16_t port) : WebServer(port) {}
+
+  void releaseRequestArguments() {
+#ifndef SIMULATOR
+    if (_currentArgs) {
+      delete[] _currentArgs;
+      _currentArgs = nullptr;
+    }
+    _currentArgCount = 0;
+
+    if (_postArgs) {
+      delete[] _postArgs;
+      _postArgs = nullptr;
+    }
+    _postArgsLen = 0;
+#endif
+  }
+};
+
 // Folders/files to hide from the web interface file browser.
 // Dot-prefixed items are hidden unless showHiddenFiles is enabled.
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -307,6 +339,7 @@ String normalizeWebPath(const String& inputPath) {
 }
 
 bool isProtectedPath(const String& path) {
+  if (protectedpaths::isSensitivePath(path.c_str())) return true;
   // Hidden/system items stay out of the default file-manager view. Enabling
   // Show Hidden Files intentionally makes them fully manageable.
   if (SETTINGS.showHiddenFiles) return false;
@@ -367,7 +400,11 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
 
   LOG_DBG("WEB", "Creating web server on port %d...", port);
-  server.reset(new WebServer(port));
+  server = makeUniqueNoThrow<CrossPointHttpServer>(port);
+  if (!server) {
+    LOG_ERR("WEB", "OOM: web server");
+    return;
+  }
 
   // Disable WiFi sleep to improve responsiveness and prevent 'unreachable' errors.
   // This is critical for reliable web server operation on ESP32.
@@ -396,6 +433,22 @@ void CrossPointWebServer::begin() {
   server->on("/style.css", HTTP_GET, [this] { handleStyleCss(); });
   server->on("/logo.png", HTTP_GET, [this] { handleLogo(); });
 
+  server->on("/plugin-host.js", HTTP_GET, [this] {
+    server->sendHeader("Content-Encoding", "gzip");
+    server->send_P(200, "application/javascript", PluginHostJs, PluginHostJsCompressedSize);
+  });
+  server->on("/api/plugins", HTTP_GET, [this] { handlePluginList(); });
+  server->on("/plugin", HTTP_GET, [this] { handlePluginFile(); });
+  server->on("/plugins-run", HTTP_GET, [this] { handlePluginRunnerPage(); });
+  server->on("/api/plugin-jobs", HTTP_POST, [this] { handlePluginJobSubmit(); });
+  server->on("/api/plugin-jobs/claim", HTTP_GET, [this] { handlePluginJobClaim(); });
+  server->on("/api/plugin-jobs/complete", HTTP_POST, [this] { handlePluginJobComplete(); });
+  server->on("/api/plugin-jobs/status", HTTP_GET, [this] { handlePluginJobStatus(); });
+  server->on("/api/relay", HTTP_POST, [this] { handleRelay(); });
+  server->on("/api/crypto", HTTP_POST, [this] { handleCrypto(); });
+  server->on("/api/fetch", HTTP_POST, [this] { handleFetch(); });
+  server->on("/api/book-key", HTTP_POST, [this] { handleBookKey(); });
+  server->on("/api/plugin-fs", HTTP_POST, [this] { handlePluginFs(); }, [this] { handlePluginFsUpload(); });
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
@@ -520,6 +573,9 @@ void CrossPointWebServer::stop() {
     return;
   }
 
+  if (pluginFsUpload.file.isOpen()) pluginFsUpload.file.close();
+  if (!pluginFsUpload.tmp.empty()) Storage.remove(pluginFsUpload.tmp.c_str());
+  pluginFsUpload = PluginFsUploadState{};
   running = false;  // Set this FIRST to prevent handleClient from using server
 
   LOG_DBG("WEB", "[MEM] Free heap before stop: %d bytes", ESP.getFreeHeap());
@@ -674,11 +730,31 @@ void CrossPointWebServer::handleStatus() const {
 
   JsonDocument doc;
   doc["version"] = AppVersion::version();
+  doc["firmwareFamily"] = firmwareidentity::FAMILY;
+  doc["pluginApi"] = firmwareidentity::PLUGIN_API_VERSION;
+  doc["pluginCapabilities"] = firmwareidentity::PLUGIN_CAPABILITIES;
   doc["ip"] = ipAddr;
   doc["mode"] = apMode ? "AP" : "STA";
   doc["rssi"] = apMode ? 0 : WiFi.RSSI();
   doc["freeHeap"] = ESP.getFreeHeap();
   doc["uptime"] = millis() / 1000;
+  // ?plugin=<name> adds a stable device ID for that plugin: sha256(secret ||
+  // name). Not reversible to any hardware ID, and different per plugin.
+  std::string plugin = server->arg("plugin").c_str();
+  for (char& c : plugin) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  uint8_t secret[32];
+  if (SETTINGS.pluginsEnabled && !plugin.empty() && plugin.length() <= 64 && deviceSecret(secret)) {
+    uint8_t input[32 + 64];
+    memcpy(input, secret, sizeof(secret));
+    memcpy(input + sizeof(secret), plugin.c_str(), plugin.length());
+    uint8_t hash[32];
+    if (wc_Sha256Hash(input, sizeof(secret) + plugin.length(), hash) == 0) {
+      char hex[65];
+      for (size_t i = 0; i < sizeof(hash); i++) snprintf(hex + 2 * i, 3, "%02x", hash[i]);
+      doc["deviceId"] = hex;
+    }
+  }
+
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   doc["device"] = gpio.deviceIsX3() ? "X3" : "X4";
 #else
@@ -736,7 +812,8 @@ bool CrossPointWebServer::scanFiles(const char* path, const FileVisitor visitor,
       auto fileName = String(name);
 
       // Skip hidden items (starting with ".")
-      bool shouldHide = !SETTINGS.showHiddenFiles && fileName.startsWith(".");
+      bool shouldHide = (!SETTINGS.showHiddenFiles && fileName.startsWith(".")) ||
+                        protectedpaths::isSensitivePath((String(path) + "/" + fileName).c_str());
 
       // Treat OS/device metadata like other hidden items: keep it out of the
       // default view, but let users manage it when Show Hidden Files is enabled.
@@ -1460,6 +1537,12 @@ void CrossPointWebServer::handleDelete() const {
     // Validate path
     if (itemPath.isEmpty() || itemPath == "/") {
       failedItems += itemPath + " (cannot delete root); ";
+      allSuccess = false;
+      continue;
+    }
+
+    if (isProtectedPath(itemPath) || protectedpaths::isSensitivePath(itemPath.c_str(), true)) {
+      failedItems += itemPath + " (protected path); ";
       allSuccess = false;
       continue;
     }
@@ -2603,4 +2686,37 @@ void CrossPointWebServer::handleFontDelete() {
     server->send(500, "application/json", "{\"error\":\"Delete failed\"}");
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
+}
+
+void CrossPointWebServer::suspendTransferServices() {
+  // Leave the WebSocket server alone mid-upload; killing it would abort the
+  // transfer. The fetch just stalls that upload until it completes.
+  if (wsServer && !wsUploadInProgress) {
+    wsServer->close();
+    wsServer.reset();
+  }
+  if (udpActive) udp.stop();
+  LOG_DBG("WEB", "Transfer services suspended, heap %u, max block %u", (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
+}
+
+void CrossPointWebServer::resumeTransferServices() {
+  if (!running) return;
+  if (!wsServer) {
+    auto* ws = new (std::nothrow) WebSocketsServer(wsPort);
+    if (ws) {
+      wsServer.reset(ws);
+      wsServer->begin();
+      wsServer->onEvent(wsEventCallback);
+    } else {
+      LOG_ERR("WEB", "OOM: WebSocket server restart");
+    }
+  }
+  if (udpActive) udpActive = udp.begin(LOCAL_UDP_PORT);
+  LOG_DBG("WEB", "Transfer services resumed, heap %u, max block %u", (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
+}
+
+void CrossPointWebServer::releasePluginRequest() {
+  static_cast<CrossPointHttpServer*>(server.get())->releaseRequestArguments();
 }

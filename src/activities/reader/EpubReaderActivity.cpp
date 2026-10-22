@@ -2592,6 +2592,7 @@ void EpubReaderActivity::onExit() {
   if (!saveReadingProgress()) {
     LOG_ERR("ERS", "Failed to flush debounced reader progress on exit");
   }
+  pluginEvents.exit(getCurrentBookPath(), getScreenshotInfo().progressPercent);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -3097,6 +3098,10 @@ void EpubReaderActivity::flushPendingSyncMark() {
 }
 
 void EpubReaderActivity::loop() {
+  {
+    RenderLock lock(*this);
+    pluginEvents.poll(getCurrentBookPath());
+  }
   flushPendingSyncMark();
   if (keptOffer && !keptOfferShown && offerKeptPosition()) return;
   if (!hyphenationPackChecked && checkHyphenationPack()) return;
@@ -6242,6 +6247,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       currentSpineIndex++;
       section.reset();
     }
+    pluginEvents.noteTurn(true);
     if (shouldRecordForwardRead) {
       if (!exitingChapter) {
         recordForwardPagePaceSample(forwardReadSeconds, source);
@@ -6253,6 +6259,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
     }
   } else {
     recordCurrentPageReadingTime(source);
+    pluginEvents.noteTurn(false);
     armReadingPaceWarmup("back_page");
     if (section->currentPage > 0) {
       section->currentPage--;
@@ -7069,6 +7076,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (heapShapeRedrawStages & HEAP_SHAPE_REDRAW_DICT) {
       MemoryBudget::logHeapShape("dict.reader_redrawn");
     }
+    if (!activeFootnotePreview) pluginEvents.rendered(static_cast<int>(getCurrentBookProgressPercent() * 100));
     pageShownAtMs = activeFootnotePreview ? 0UL : millis();
     startDailyReadingInterval();
   }

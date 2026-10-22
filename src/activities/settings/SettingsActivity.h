@@ -27,6 +27,7 @@ enum class SettingAction {
   ScreenCalibration,
   KOReaderSync,
   OPDSBrowser,
+  Plugins,
   DisplaySleepScreen,
   DisplayFrontlight,
   ReaderFontOptions,

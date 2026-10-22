@@ -1,6 +1,7 @@
 #include "OpdsBookBrowserActivity.h"
 
 #include <Arduino.h>
+#include <DownloadFileSwap.h>
 #include <FreeInkUIIcon.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -31,7 +32,6 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
 #include "fontIds.h"
-#include "network/DownloadFileSwap.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
 #include "util/OpdsDownloadFolder.h"
@@ -674,7 +674,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
         server.username, server.password, std::move(downloadOptions), &diagnostics);
     if (result != HttpDownloader::OK) {
       state = BrowserState::ERROR;
-      switch (classifyFeedFailure(diagnostics, result == HttpDownloader::HTTP_ERROR)) {
+      switch (classifyFeedFailure(diagnostics,
+                                  result == HttpDownloader::HTTP_ERROR || result == HttpDownloader::UNAUTHORIZED)) {
         case OpdsFeedError::Unauthorized:
           errorMessage = tr(STR_FEED_UNAUTHORIZED);
           break;

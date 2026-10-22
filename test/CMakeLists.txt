@@ -156,3 +156,14 @@ add_test(NAME LanguageAssetPublicationRegression
 add_subdirectory(reading_session_journal)
 
 add_subdirectory(reading_session_checkpoint)
+
+add_subdirectory(protected_paths)
+add_subdirectory(plugin_manifest_classification)
+add_subdirectory(plugin_http_policy)
+add_subdirectory(plugin_bundle)
+
+add_subdirectory(plugin_picker_layout)
+
+add_subdirectory(plugin_details)
+
+add_subdirectory(reader_session)

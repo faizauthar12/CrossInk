@@ -166,6 +166,7 @@ void TxtReaderActivity::onExit() {
   if (!flushQueuedProgress()) {
     LOG_ERR("TRS", "Failed to flush debounced reader progress on exit");
   }
+  pluginEvents.exit(getCurrentBookPath(), getScreenshotInfo().progressPercent);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -205,6 +206,10 @@ bool TxtReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult&
 }
 
 void TxtReaderActivity::loop() {
+  {
+    RenderLock lock(*this);
+    pluginEvents.poll(getCurrentBookPath());
+  }
   if (quickActionsPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 #if CROSSINK_APP_CAP_TOUCH
   if (handlePinchFontResize()) return;
@@ -301,7 +306,11 @@ void TxtReaderActivity::loop() {
       switch (side.action) {
         case CrossPointSettings::PAGE_TURN:
           if (currentPage < totalPages - 1) {
-            currentPage++;
+            {
+              RenderLock lock(*this);
+              currentPage++;
+              pluginEvents.noteTurn(true);
+            }
             requestUpdate();
           }
           break;
@@ -344,11 +353,19 @@ void TxtReaderActivity::loop() {
   }
 
   if (prevTriggered && currentPage > 0) {
-    currentPage--;
+    {
+      RenderLock lock(*this);
+      currentPage--;
+      pluginEvents.noteTurn(false);
+    }
     requestUpdate();
   } else if (nextTriggered) {
     if (currentPage < totalPages - 1) {
-      currentPage++;
+      {
+        RenderLock lock(*this);
+        currentPage++;
+        pluginEvents.noteTurn(true);
+      }
       requestUpdate();
     }
   }
@@ -501,7 +518,11 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       return applyReaderOrientation(ReaderUtils::flippedOrientation(SETTINGS.orientation));
     case CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE:
       if (currentPage > 0) {
-        currentPage--;
+        {
+          RenderLock lock(*this);
+          currentPage--;
+          pluginEvents.noteTurn(false);
+        }
         requestUpdate();
       }
       return true;
@@ -909,6 +930,7 @@ void TxtReaderActivity::renderPage() {
   if (SETTINGS.textAntiAliasing) {
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
   }
+  pluginEvents.rendered(totalPages > 0 ? static_cast<int>((currentPage + 1LL) * 10000 / totalPages) : 0);
   // scope destructor clears font cache via FontCacheManager
 }
 

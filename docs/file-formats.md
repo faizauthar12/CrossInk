@@ -1744,3 +1744,18 @@ Automatic BookOrbit export requires a resolved book match. EPUB progress normall
 supplies the matching metadata. XTC's stats-only protocol currently supplies no
 title/author, so its sessions require an existing or manually established match
 to the corresponding EPUB in BookOrbit.
+
+## Protected EPUB `<book>.key`
+
+Version 2 stores `FIBK` (4 bytes), version `2` (1 byte), content-key length
+(1 byte: 16 or 32), expiry (8-byte little-endian UTC epoch seconds; zero means
+no expiry), random IV (12 bytes), wrapped content key (16 or 32 bytes), and
+AES-GCM tag (16 bytes). The complete 14-byte header is authenticated as additional
+data. The wrapping key is SHA-256 of `book-key:` followed by the 32-byte internal
+NVS device secret. The file is 58 or 74 bytes; unexpected lengths are rejected.
+Version 1 remains readable and has a 13-byte header without the key-length byte,
+with a fixed 16-byte content key.
+
+Writes use `.tmp` staging and `.old` recovery. The device secret is not stored on
+the SD card. Existing EPUB cache formats are unchanged; those caches may contain
+decoded content and are usable by the reader only after its book-open access check.
