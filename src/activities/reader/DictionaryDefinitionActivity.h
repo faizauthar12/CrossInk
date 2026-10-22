@@ -18,6 +18,9 @@
 #include "util/WordSelectNavigator.h"
 
 class DictionaryDefinitionActivity final : public Activity {
+#ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
+#endif
  public:
   using BackgroundRenderFn = void (*)(void* context);
 

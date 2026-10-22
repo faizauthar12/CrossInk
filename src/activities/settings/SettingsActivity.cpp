@@ -124,9 +124,9 @@ uint8_t enumRawValueForDisplayIndex(const SettingInfo& setting, uint8_t displayI
   return setting.enumRawValues[displayIndex];
 }
 
-void drawCenteredTextLine(const GfxRenderer& renderer, const int pageWidth, const int y, const std::string& text) {
+void drawCenteredTextLine(const GfxRenderer& renderer, const Rect& safe, const int y, const std::string& text) {
   const int labelWidth = renderer.getTextWidth(SMALL_FONT_ID, text.c_str());
-  const int labelX = (pageWidth - labelWidth) / 2;
+  const int labelX = safe.x + (safe.width - labelWidth) / 2;
   renderer.drawText(SMALL_FONT_ID, labelX, y, text.c_str());
 }
 
@@ -155,15 +155,14 @@ std::string formatCompactDuration(const uint32_t seconds) {
   return buf;
 }
 
-void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
-                             const ThemeMetrics& metrics) {
+void drawSystemVersionFooter(const GfxRenderer& renderer, const ThemeMetrics& metrics) {
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const std::string label = AppVersion::versionLabel();
-  const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
-  const int bottomLineY =
-      pageHeight - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - systemVersionFooterBottomInset;
+  const int maxWidth = safe.width - systemVersionFooterSideMargin * 2;
+  const int bottomLineY = safe.y + safe.height - metrics.verticalSpacing - systemVersionFooterBottomInset;
 
   if (renderer.getTextWidth(SMALL_FONT_ID, label.c_str()) <= maxWidth) {
-    drawCenteredTextLine(renderer, pageWidth, bottomLineY, label);
+    drawCenteredTextLine(renderer, safe, bottomLineY, label);
     return;
   }
 
@@ -190,8 +189,8 @@ void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, c
                                      ? ""
                                      : renderer.truncatedText(SMALL_FONT_ID, label.substr(lineBreak).c_str(), maxWidth);
   const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  drawCenteredTextLine(renderer, pageWidth, bottomLineY - lineHeight, firstLine);
-  drawCenteredTextLine(renderer, pageWidth, bottomLineY, secondLine);
+  drawCenteredTextLine(renderer, safe, bottomLineY - lineHeight, firstLine);
+  drawCenteredTextLine(renderer, safe, bottomLineY, secondLine);
 }
 
 std::string formatSettingValue(const SettingInfo& setting) {
@@ -1799,14 +1798,9 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   // compact header geometry is in absolute screen coordinates. Overlap the
   // tab's top rule with the header's final underline pixel.
   const int tabTop = std::max<int>(safe.y, CompactHeader::headerBottomY(renderer) - 1);
-  if (renderer.hasCustomViewableInsets()) {
-    setUiContentMargin(screen, renderer,
-                       fui::Insets{static_cast<int16_t>(tabTop), 0,
-                                   static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
-  } else {
-    screen.setContentMargin(fui::Insets{static_cast<int16_t>(tabTop - safe.y), 0,
-                                        static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
-  }
+  setUiContentMargin(
+      screen, renderer,
+      fui::Insets{static_cast<int16_t>(tabTop), 0, static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
 
   if (isFileBrowserView()) {
     const int16_t listInset = static_cast<int16_t>(metrics.listInset);
@@ -2031,7 +2025,7 @@ void SettingsActivity::render(RenderLock&&) {
 
   // Keep build information discoverable without crowding the common header.
   if (!isFileBrowserView() && selectedCategoryIndex == 3) {
-    drawSystemVersionFooter(renderer, pageWidth, renderer.getScreenHeight(), metrics);
+    drawSystemVersionFooter(renderer, metrics);
   }
 
   const auto confirmLabel =

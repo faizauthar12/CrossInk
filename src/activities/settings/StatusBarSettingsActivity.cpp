@@ -193,19 +193,11 @@ int StatusBarSettingsActivity::previewHeight() const {
          metrics.verticalSpacing;
 }
 
-int StatusBarSettingsActivity::topPreviewOriginY() const {
-  // Calibrated: match the row every other screen and the reader use.
-  if (renderer.hasCustomViewableInsets()) return UITheme::getTopStatusBarY(renderer);
-  int marginTop, marginRight, marginBottom, marginLeft;
-  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  (void)marginRight;
-  (void)marginBottom;
-  (void)marginLeft;
-  return marginTop + UITheme::getInstance().getMetrics().topPadding + UITheme::getTopStatusBarInset(renderer);
-}
+int StatusBarSettingsActivity::topPreviewOriginY() const { return UITheme::getTopStatusBarY(renderer); }
 
 Rect StatusBarSettingsActivity::settingsHeaderRect() const {
-  Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
   if (view == View::Top) header.y = topPreviewOriginY() + previewHeight();
   return header;
 }
@@ -624,14 +616,7 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
 void StatusBarSettingsActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  const auto orientation = renderer.getOrientation();
-  const bool landscape = orientation == GfxRenderer::Orientation::LandscapeClockwise ||
-                         orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
-  const int contentX =
-      orientation == GfxRenderer::Orientation::LandscapeClockwise ? UITheme::getButtonHintsReserve(renderer) : 0;
-  const int contentWidth = pageWidth - (landscape ? UITheme::getButtonHintsReserve(renderer) : 0);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const char* headerTitle = displayContext       ? tr(STR_STATUS_BAR)
                             : view == View::Root ? tr(STR_STATUS_BARS)
                             : view == View::Top  ? tr(STR_TOP_STATUS_BAR)
@@ -650,8 +635,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
       TouchHeaderBackButton::draw(renderer, uiTarget, header, headerTitle, readerContext, 0, nullptr,
                                   TouchHeaderBackButton::TITLE_VERTICAL_OFFSET, showHeaderStatus);
     } else {
-      GUI.drawHeader(renderer, Rect{contentX, header.y, contentWidth, header.height}, headerTitle, nullptr,
-                     readerContext, showHeaderStatus);
+      GUI.drawHeader(renderer, header, headerTitle, nullptr, readerContext, showHeaderStatus);
     }
     renderUiApp(app, uiTarget);
     if (!listNav.consumeRebuildNeeded()) break;
@@ -665,11 +649,10 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
                               ? UITheme::getDisplayStatusBarTextHeight(renderer) + ReaderStatusBarConfig::TOP_TEXT_INSET
                               : UITheme::getReaderStatusBarHeight(position, renderer);
     const int previewOriginY =
-        view == View::Top ? topPreviewOriginY()
-                          : pageHeight - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - barHeight;
+        view == View::Top ? topPreviewOriginY() : safe.y + safe.height - metrics.verticalSpacing - barHeight;
     const int labelY = view == View::Top ? previewOriginY + barHeight + 9
                                          : previewOriginY - renderer.getLineHeight(UI_10_FONT_ID) - 18;
-    renderer.drawText(UI_10_FONT_ID, contentX + metrics.contentSidePadding, labelY, tr(STR_PREVIEW));
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding, labelY, tr(STR_PREVIEW));
     ReaderStatusBarContent content;
     content.outsideReader = displayContext;
     content.bookProgress = 75.12f;

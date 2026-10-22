@@ -70,6 +70,7 @@
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/BookStatsActivity.h"
 #include "activities/reader/BookStatsView.h"
+#include "activities/reader/DictionaryDefinitionActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderBookmarkListActivity.h"
 #include "activities/reader/EpubReaderChapterSelectionActivity.h"
@@ -78,6 +79,7 @@
 #include "activities/reader/EpubReaderFootnotesActivity.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
+#include "activities/reader/QrDisplayActivity.h"
 #include "activities/reader/ReaderButtonShortcuts.h"
 #include "activities/reader/ReaderFontLoading.h"
 #include "activities/reader/ReaderUtils.h"
@@ -86,10 +88,12 @@
 #include "activities/reader/XtcReaderMenuActivity.h"
 #include "activities/settings/AboutActivity.h"
 #include "activities/settings/AssetDownloadActivity.h"
+#include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/FontSelectionActivity.h"
 #include "activities/settings/FrontlightTimePickerActivity.h"
 #include "activities/settings/HyphenationManagerActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
+#include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/QuickActionsActivity.h"
 #include "activities/settings/ReleaseNotesActivity.h"
 #include "activities/settings/ScreenCalibrationActivity.h"
@@ -709,6 +713,156 @@ struct StatusBarFeatureSmokeTest {
 };
 
 struct ScreenCalibrationSmokeTest {
+  // Check actual ink, not just layout metadata, across the default/custom boundary.
+  static bool safeAreaContract(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
+    const auto original = renderer.getViewableInsets();
+    const auto orientation = renderer.getOrientation();
+    const auto theme = SETTINGS.uiTheme;
+    const ScreenInsets cases[] = {ScreenInsets{}, ScreenInsets{{{9, 3, 3, 3}}}, ScreenInsets{{{32, 32, 32, 32}}},
+                                  ScreenInsets{{{21, 7, 32, 13}}}};
+    std::string definition;
+    for (int i = 0; i < 60; ++i) {
+      definition +=
+          "Calibration keeps long dictionary definitions readable inside the visible screen, "
+          "including the final line on each page.\n";
+    }
+    const char* dictionaryPath = "/.crosspoint/calibration-dictionary";
+    if (!Storage.writeFile("/.crosspoint/calibration-dictionary.dict", definition.c_str()) ||
+        !Storage.writeFile("/.crosspoint/calibration-dictionary.ifo",
+                           "StarDict's dict ifo file\nbookname=Calibration\nsametypesequence=m\n"))
+      return false;
+    DictLocation dictionaryLocation;
+    dictionaryLocation.folderPath = dictionaryPath;
+    dictionaryLocation.size = static_cast<uint32_t>(definition.size());
+    dictionaryLocation.found = true;
+    std::vector<FootnoteEntry> entries(40);
+    for (auto& entry : entries) std::strcpy(entry.number, "Calibration boundary row");
+    bool valid = true;
+    for (int variant = 0; variant < CrossPointSettings::UI_THEME_COUNT; ++variant) {
+      SETTINGS.uiTheme = variant;
+      UITheme::getInstance().reload();
+      for (unsigned index = 0; index < 4; ++index) {
+        renderer.setViewableInsets(cases[index]);
+        for (unsigned rotation = 0; rotation < 4; ++rotation) {
+          renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
+          const auto edges = cases[index].rotated(rotation).edges;
+          const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+          valid &= safe.x >= edges[3] && safe.y >= edges[0] &&
+                   safe.x + safe.width <= renderer.getScreenWidth() - edges[1] &&
+                   safe.y + safe.height <= renderer.getScreenHeight() - edges[2];
+          const auto checkInk = [&](const char* screen) {
+            for (int y = 0; y < renderer.getScreenHeight(); ++y) {
+              for (int x = 0; x < renderer.getScreenWidth(); ++x) {
+                if (renderer.isPixelBlack(x, y) &&
+                    (x < edges[3] || y < edges[0] || x >= renderer.getScreenWidth() - edges[1] ||
+                     y >= renderer.getScreenHeight() - edges[2])) {
+                  LOG_ERR("SMOKE", "Unsafe ink screen=%s theme=%d case=%u rotation=%u pixel=%d,%d", screen, variant,
+                          index, rotation, x, y);
+                  return false;
+                }
+              }
+            }
+            return true;
+          };
+          auto list = std::make_unique<EpubReaderFootnotesActivity>(renderer, mappedInputManager, entries);
+          list->onEnter();
+          list->render(std::move(lock));
+          valid &= checkInk("Footnotes");
+          const auto deviceSafe = list->app.device().safeRect();
+          valid &= deviceSafe.x == edges[3] && deviceSafe.y == edges[0];
+          list->onExit();
+          renderer.clearScreen();
+          const char* options[] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"};
+          GUI.drawOptionPopup(
+              renderer, "Calibration options",
+              OptionLabels(options, 8,
+                           [](const void* context, size_t i) { return static_cast<const char* const*>(context)[i]; }),
+              7, true);
+          valid &= checkInk("Options");
+          renderer.clearScreen();
+          const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInputManager, safe);
+          const int menuTop = header.y + header.height;
+          GUI.drawButtonMenu(
+              renderer, Rect{safe.x, menuTop, safe.width, std::max(0, safe.y + safe.height - menuTop)}, 8, 7,
+              [](int) { return "Menu action"; }, nullptr);
+          valid &= checkInk("Home menu");
+          bool labelsValid = true;
+          GUI.drawButtonMenu(
+              renderer, Rect{safe.x, menuTop, safe.width, GUI.getMenuRowHeight(renderer) + 4}, 8, -3,
+              [&](int i) {
+                labelsValid &= i >= 0 && i < 8;
+                return "Menu action";
+              },
+              nullptr);
+          valid &= labelsValid;
+          // Exercise direct activity renderers that bypass the SDK's normal list layout.
+          if ((variant == CrossPointSettings::CLASSIC || variant == CrossPointSettings::ROUNDEDRAFF) && index >= 2) {
+            auto ota = std::make_unique<OtaUpdateActivity>(renderer, mappedInputManager);
+            ota->state = OtaUpdateActivity::WAITING_CONFIRMATION;
+            ota->render(std::move(lock));
+            valid &= checkInk("OTA confirmation");
+            ota->state = OtaUpdateActivity::FINISHED;
+            ota->render(std::move(lock));
+            valid &= checkInk("OTA finished");
+            auto download = std::make_unique<FontDownloadActivity>(renderer, mappedInputManager);
+            download->state_ = FontDownloadActivity::DOWNLOADING;
+            download->activeDownloadFamilyName_ = "Long font family name for download feedback";
+            download->render(std::move(lock));
+            valid &= checkInk("Font download");
+            auto qr = std::make_unique<QrDisplayActivity>(renderer, mappedInputManager, std::string(100, 'A'));
+            qr->render(std::move(lock));
+            valid &= checkInk("QR display");
+            auto settings = std::make_unique<SettingsActivity>(renderer, mappedInputManager, false, true);
+            settings->onEnter();
+            settings->selectedCategoryIndex = 3;
+            settings->setCurrentSettingsForCategory();
+            settings->render(std::move(lock));
+            valid &= checkInk("Settings System footer");
+            settings->onExit();
+            for (const bool modal : {false, true}) {
+              auto dictionary = std::make_unique<DictionaryDefinitionActivity>(renderer, mappedInputManager,
+                                                                               "Calibration", dictionaryLocation);
+              if (modal) {
+                dictionary->backgroundContext_ = &valid;
+                dictionary->backgroundRender_ = [](void*) { renderer.clearScreen(); };
+              }
+              dictionary->wrapText();
+              valid &=
+                  !dictionary->definitionReadFailed_ && !dictionary->layoutLines.empty() && dictionary->totalPages > 1;
+              dictionary->render(std::move(lock));
+              valid &= checkInk(modal ? "Dictionary modal" : "Dictionary fullscreen");
+              valid &= dictionary->leftPadding >= safe.x &&
+                       renderer.getScreenWidth() - dictionary->rightPadding <= safe.x + safe.width;
+              dictionary->currentPage = dictionary->totalPages - 1;
+              dictionary->loadPage(dictionary->currentPage);
+              dictionary->render(std::move(lock));
+              valid &= !dictionary->layoutLines.empty() &&
+                       checkInk(modal ? "Dictionary modal last page" : "Dictionary fullscreen last page");
+            }
+            renderer.clearScreen();
+            auto panel = std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager);
+            panel->onEnter();
+            panel->render(std::move(lock));
+            valid &= checkInk("Frontlight panel");
+            const auto handle = panel->simulatorHandleRect();
+            valid &= handle.x >= safe.x && handle.right() <= safe.x + safe.width && handle.y >= safe.y &&
+                     handle.bottom() <= safe.y + safe.height &&
+                     panel->simulatorContentBottom <= panel->simulatorActionBarTop;
+            panel->onExit();
+          }
+          if (rotation == 0) {
+            capture("calibration-bounds-theme-" + std::to_string(variant) + "-case-" + std::to_string(index));
+          }
+        }
+      }
+    }
+    renderer.setViewableInsets(original);
+    renderer.setOrientation(orientation);
+    SETTINGS.uiTheme = theme;
+    UITheme::getInstance().reload();
+    LOG_INF("SMOKE", "Calibration default/legacy/maximum/asymmetric UI matrix: %s", valid ? "passed" : "failed");
+    return valid;
+  }
   static bool geometry(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
     const auto original = renderer.getViewableInsets();
     const auto orientation = renderer.getOrientation();
@@ -797,7 +951,7 @@ struct ScreenCalibrationSmokeTest {
           renderer.setViewableInsets(ScreenInsets{});
           list->render(std::move(lock));
           const auto restored = list->app.device().safeRect();
-          valid &= restored.x == 3 && restored.y == 9;
+          valid &= restored.x == ScreenInsets{}.edges[3] && restored.y == ScreenInsets{}.edges[0];
           capture("calibration-suspended-menu-reset-theme-" + std::to_string(static_cast<int>(variant)));
           renderer.setViewableInsets(ScreenInsets{{{32, 32, 32, 32}}});
         }
@@ -818,7 +972,8 @@ struct ScreenCalibrationSmokeTest {
     const auto orientation = renderer.getOrientation();
     const auto theme = SETTINGS.uiTheme;
     bool valid = true;
-    for (const auto& insets : {ScreenInsets{{{15, 6, 3, 3}}}, ScreenInsets{{{4, 3, 3, 3}}}}) {
+    for (const auto& insets :
+         {ScreenInsets{}, ScreenInsets{{{0, 0, 0, 0}}}, ScreenInsets{{{15, 6, 3, 3}}}, ScreenInsets{{{4, 3, 3, 3}}}}) {
       renderer.setViewableInsets(insets);
       for (const auto variant :
            {CrossPointSettings::CLASSIC, CrossPointSettings::LYRA, CrossPointSettings::ROUNDEDRAFF}) {
@@ -890,7 +1045,7 @@ struct ScreenCalibrationSmokeTest {
       for (const bool custom : {false, true}) {
         renderer.setViewableInsets(custom ? ScreenInsets{{{32, 32, 32, 32}}} : ScreenInsets{});
         const int reserve = UITheme::getButtonHintsReserve(renderer);
-        valid &= reserve == (mappedInputManager.hasTouchHardware() ? 0 : custom ? 72 : 40);
+        valid &= reserve == (mappedInputManager.hasTouchHardware() ? 0 : custom ? 72 : 43);
         for (unsigned rotation = 0; rotation < 4; ++rotation) {
           renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
           renderer.clearScreen();
@@ -4549,6 +4704,9 @@ class SimulatorSmokeTest {
         if (!activityManager.isCurrentActivityNamed("Settings"))
           fail("Calibration error cancel did not restore Settings");
         RenderLock lock;
+        if (!ScreenCalibrationSmokeTest::safeAreaContract(
+                lock, [this](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
+          fail("Calibration default/custom UI boundary contract failed");
         if (!ScreenCalibrationSmokeTest::geometry(
                 lock, [this](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
           fail("Calibration maximum headers, status, touch targets, or list bounds failed");
@@ -4644,7 +4802,8 @@ class SimulatorSmokeTest {
       }
       case 19: {
         auto* browser = dynamic_cast<FileBrowserActivity*>(activityManager.simulatorCurrentActivity());
-        if (!browser || browser->simulatorSafeRect().x != 3 || browser->simulatorSafeRect().y != 9)
+        if (!browser || browser->simulatorSafeRect().x != ScreenInsets{}.edges[3] ||
+            browser->simulatorSafeRect().y != ScreenInsets{}.edges[0])
           fail("Browser retained old SDK bounds after calibration reset");
         renderCapture("calibration-browser-resume-reset");
         if (mappedInputManager.hasTouchHardware()) {
