@@ -50,6 +50,8 @@ struct Flash {
   bool (*read)(void*, size_t, void*, size_t);
   bool (*write)(void*, size_t, const void*, size_t);
   bool (*erase)(void*, size_t, size_t);
+  // Optional bounded readback with one storage handle for bulk writes.
+  bool (*verify)(void*, size_t, const void*, size_t) = nullptr;
 };
 
 enum class Result : uint8_t {
@@ -111,7 +113,10 @@ struct Installed {
 // Identical compiled content (including record order) and metadata returns
 // Unchanged with the pinned identity
 // and no writes. A changed source requires Input::rewind before any flash mutation.
-Result install(Input input, const Schema& schema, const Flash& flash, int pinnedSlot, Installed& installed);
+// Optional caller-owned SLOT_SIZE scratch batches the inactive slot in RAM.
+// Storage is still verified before the commit marker is published last.
+Result install(Input input, const Schema& schema, const Flash& flash, int pinnedSlot, Installed& installed,
+               uint8_t* staging = nullptr);
 
 // Fully validates a committed mapped slot. Offsets are relative to the slot base.
 // Pass nullptr for offsets to inspect a candidate without changing the active index.

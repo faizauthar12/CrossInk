@@ -324,6 +324,7 @@ Result readCrc(const Flash& flash, size_t base, size_t size, uint8_t* scratch, u
 }
 bool writeVerified(const Flash& flash, size_t offset, const void* bytes, size_t size) {
   if (!flash.write(flash.context, offset, bytes, size)) return false;
+  if (flash.verify) return flash.verify(flash.context, offset, bytes, size);
   uint8_t check[128];
   const auto* data = static_cast<const uint8_t*>(bytes);
   for (size_t i = 0; i < size; i += sizeof(check)) {
@@ -548,7 +549,8 @@ Result validate(Input input, const Schema& schema, Metadata& metadata, const Val
   return result;
 }
 
-Result install(Input input, const Schema& schema, const Flash& flash, int pinnedSlot, Installed& installed) {
+Result install(Input input, const Schema& schema, const Flash& flash, int pinnedSlot, Installed& installed,
+               uint8_t* staging) {
   if (schema.count > MAX_KEYS || pinnedSlot < -1 || pinnedSlot > 1) return Result::Invalid;
   if (flash.size < 2 * SLOT_SIZE || flash.size % SLOT_SIZE != 0) return Result::StorageUnavailable;
   HeapObject<Workspace> storage;
@@ -604,8 +606,38 @@ Result install(Input input, const Schema& schema, const Flash& flash, int pinned
   if (newest == std::numeric_limits<uint64_t>::max()) return Result::Invalid;
   const int target = pinnedSlot >= 0 ? 1 - pinnedSlot : (latestSlot >= 0 ? 1 - latestSlot : 0);
   const size_t base = slotOffset(flash.size, target);
-  if (!flash.erase(flash.context, base, SLOT_SIZE) || !writeVerified(flash, base, OWNER, OWNER_SIZE)) return Result::Io;
-  result = parseDocument(input, schema, work, metadata, end, count, nullptr, &flash, base);
+  // Compile into caller-owned RAM when supplied. The selected old slot is never
+  // touched, and parse failures do not modify storage at all in this mode.
+  struct StagedSlot {
+    uint8_t* bytes;
+    size_t base;
+    bool contains(size_t offset, size_t length) const {
+      return offset >= base && offset - base <= SLOT_SIZE && length <= SLOT_SIZE - (offset - base);
+    }
+  } staged{staging, base};
+  const Flash buffered{&staged, flash.size,
+                       [](void* context, size_t offset, void* bytes, size_t length) {
+                         auto& slot = *static_cast<StagedSlot*>(context);
+                         if (!slot.contains(offset, length)) return false;
+                         std::memcpy(bytes, slot.bytes + offset - slot.base, length);
+                         return true;
+                       },
+                       [](void* context, size_t offset, const void* bytes, size_t length) {
+                         auto& slot = *static_cast<StagedSlot*>(context);
+                         if (!slot.contains(offset, length)) return false;
+                         std::memcpy(slot.bytes + offset - slot.base, bytes, length);
+                         return true;
+                       },
+                       [](void* context, size_t offset, size_t length) {
+                         auto& slot = *static_cast<StagedSlot*>(context);
+                         if (!slot.contains(offset, length)) return false;
+                         std::memset(slot.bytes + offset - slot.base, 0xff, length);
+                         return true;
+                       }};
+  const Flash& output = staging ? buffered : flash;
+  if (!output.erase(output.context, base, SLOT_SIZE) || !writeVerified(output, base, OWNER, OWNER_SIZE))
+    return Result::Io;
+  result = parseDocument(input, schema, work, metadata, end, count, nullptr, &output, base);
   if (result != Result::Ok) return result;
   std::memset(work->header, 0, HEADER_SIZE);
   std::memcpy(work->header, OWNER, OWNER_SIZE);
@@ -619,13 +651,17 @@ Result install(Input input, const Schema& schema, const Flash& flash, int pinned
   std::memcpy(work->header + 168, metadata.keyboard, CODE_SIZE);
   // Leave checksum erased too; flash cannot program zero bits back to one.
   std::memset(work->header + 36, 0xff, 4);
-  if (!writeVerified(flash, base + 20, work->header + 20, HEADER_SIZE - 20)) return Result::Io;
+  if (!writeVerified(output, base + 20, work->header + 20, HEADER_SIZE - 20)) return Result::Io;
   uint32_t crc;
-  result = readCrc(flash, base, end, work->inputBuffer, crc);
+  result = readCrc(output, base, end, work->inputBuffer, crc);
   if (result != Result::Ok) return result;
   uint8_t encoded[4];
   put32(encoded, crc);
-  if (!writeVerified(flash, base + 36, encoded, sizeof(encoded))) return Result::Io;
+  if (!writeVerified(output, base + 36, encoded, sizeof(encoded))) return Result::Io;
+  // Persist and verify the uncommitted image first. A failed/torn write cannot
+  // make this slot bootable. The commit marker is a separate durable write.
+  if (staging && (!flash.erase(flash.context, base, SLOT_SIZE) || !writeVerified(flash, base, staging, end)))
+    return Result::Io;
   put32(encoded, COMMITTED);
   if (!writeVerified(flash, base + 16, encoded, sizeof(encoded))) return Result::Io;
   installed.metadata = metadata;

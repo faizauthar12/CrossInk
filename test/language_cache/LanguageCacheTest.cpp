@@ -409,6 +409,79 @@ void provisioningAndFailures() {
   broken.failAt = 0;
   CHECK(install(broken.input(), schema(), original.flash(), 0, info) == Result::Io);
 }
+void batchedInstalls() {
+  schemaInit();
+  std::vector<uint8_t> staging(SLOT_SIZE);
+  const auto batch = [&](Storage& storage, const std::string& text, Installed& info, int pinned = -1) {
+    Source source{text};
+    return install(source.input(), schema(), storage.flash(), pinned, info, staging.data());
+  };
+  Storage original;
+  Installed info;
+  CHECK(batch(original, document(), info) == Result::Ok);
+  // Erase, bulk uncommitted image, commit marker: independent of string count.
+  CHECK(original.mutations == 3);
+  Storage streamed;
+  CHECK(put(streamed, document(), info) == Result::Ok);
+  CHECK(original.bytes == streamed.bytes);
+  CHECK(streamed.mutations > original.mutations);
+  const auto before = original.bytes;
+  original.mutations = original.reads = 0;
+  CHECK(batch(original, document(), info, 0) == Result::Unchanged);
+  CHECK(original.mutations == 0 && original.bytes == before);
+  const auto replacement = document("STR_HOME: \"Replacement\"\n");
+  Storage success = original;
+  success.mutations = success.reads = 0;
+  CHECK(batch(success, replacement, info, 0) == Result::Ok);
+  CHECK(success.mutations == 3);
+  CHECK(open(success.slot(0), SLOT_SIZE, schema(), info) && info.generation == 1);
+  CHECK(open(success.slot(1), SLOT_SIZE, schema(), info) && info.generation == 2);
+  // Fail or tear every persistence operation. A failed marker readback can
+  // leave a valid new slot, but the selected old generation always survives.
+  for (bool torn : {false, true}) {
+    for (int failure = 0; failure < success.mutations; ++failure) {
+      Storage trial = original;
+      trial.mutations = 0;
+      trial.failMutation = failure;
+      trial.torn = torn;
+      CHECK(batch(trial, replacement, info, 0) == Result::Io);
+      CHECK(std::memcmp(trial.slot(0), original.slot(0), SLOT_SIZE) == 0);
+      CHECK(open(trial.slot(0), SLOT_SIZE, schema(), info) && info.generation == 1);
+      CHECK(!open(trial.slot(1), SLOT_SIZE, schema(), info));
+      trial.failMutation = -1;
+      CHECK(batch(trial, replacement, info, 0) == Result::Ok);
+    }
+  }
+  for (int failure = 0; failure < success.reads; ++failure) {
+    Storage trial = original;
+    trial.mutations = trial.reads = 0;
+    trial.failRead = failure;
+    CHECK(batch(trial, replacement, info, 0) == Result::Io);
+    CHECK(std::memcmp(trial.slot(0), original.slot(0), SLOT_SIZE) == 0);
+    if (trial.mutations < 3) CHECK(!open(trial.slot(1), SLOT_SIZE, schema(), info));
+  }
+  // A malformed source is rejected before any persistent mutation.
+  Storage invalid = original;
+  invalid.mutations = 0;
+  CHECK(batch(invalid, "broken", info) != Result::Ok);
+  CHECK(invalid.mutations == 0 && invalid.bytes == original.bytes);
+  Source broken{document()};
+  broken.failAt = 0;
+  CHECK(install(broken.input(), schema(), invalid.flash(), -1, info, staging.data()) == Result::Io);
+  CHECK(invalid.mutations == 0 && invalid.bytes == original.bytes);
+  // Exercise optimized storage verification, including a readback failure
+  // before publication. This callback must be honored rather than skipped.
+  Storage verified = original;
+  auto flash = verified.flash();
+  // Reuse the Storage context, with an intentionally failing verifier.
+  flash.verify = [](void*, size_t, const void*, size_t) { return false; };
+  Source source{replacement};
+  verified.mutations = 0;
+  CHECK(install(source.input(), schema(), flash, 0, info, staging.data()) == Result::Io);
+  CHECK(verified.mutations == 2);
+  CHECK(!open(verified.slot(1), SLOT_SIZE, schema(), info));
+  CHECK(std::memcmp(verified.slot(0), original.slot(0), SLOT_SIZE) == 0);
+}
 }  // namespace
 int main() {
   basics();
@@ -418,5 +491,6 @@ int main() {
   formats();
   capacity();
   provisioningAndFailures();
+  batchedInstalls();
   std::puts("Language cache tests passed: parsing, formats, compatibility, provisioning and interrupted writes");
 }
