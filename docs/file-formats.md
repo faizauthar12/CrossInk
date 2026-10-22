@@ -770,6 +770,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 98
+
+Complete caches use `98`; suspended partial caches use `0xD3`. The payload is
+unchanged. Pending words are committed to their original paragraph before a
+nested block changes layout or inherited font styles. Both cache types rebuild
+automatically so existing books pick up the corrected word placement (#886).
+
 ### Version 95
 
 Complete caches use `95`; suspended partial caches use `0xD0`. The payload is

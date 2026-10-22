@@ -108,6 +108,7 @@
 - Import CrossPoint's normal 100% word spacing as 0 instead of maximum spacing, while preserving saved CrossInk spacing levels.
 - Draw damaged SD-font glyphs as blanks and show a one-time warning to reinstall the font (CrossPoint #4091).
 - Avoid large contiguous allocations for EPUB chapter anchors without changing background pagination (anchor-storage portion of CrossPoint #4040).
+- Keep the last word before a nested EPUB quotation or heading in its original paragraph; existing book layouts rebuild automatically (adapted from yassine-cc, #886).
 
 ### Changed
 
