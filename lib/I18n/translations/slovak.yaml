@@ -996,3 +996,5 @@ STR_CUSTOM_HEADER_1: "Vlastná hlavička 1"
 STR_CUSTOM_HEADER_2: "Vlastná hlavička 2"
 
 STR_DISABLE_PAGE_TURN_GESTURES: "Vypnúť gestá otáčania strán"
+
+STR_FONT_DAMAGED: "Poškodený súbor písma"

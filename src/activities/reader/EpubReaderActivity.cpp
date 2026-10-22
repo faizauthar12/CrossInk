@@ -62,6 +62,7 @@
 #include "ReaderUtils.h"
 #include "ReadingSessionStats.h"
 #include "RecentBooksStore.h"
+#include "SdCardFont.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
 #include "WordRef.h"
@@ -2847,7 +2848,7 @@ bool EpubReaderActivity::backgroundBuildCanUsePageBuffer() const {
   // Drawers are child activities and suspend this loop. In-reader popups and
   // toast region restores paint in place and must retain their composed base.
   return !pageBufferStale.load(std::memory_order_relaxed) && !quickActionsPopup.isActive() && !pendingRenderModeToast &&
-         !pendingSafeModeToast;
+         !pendingSafeModeToast && !pendingFontDamagedToast;
 }
 
 bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
@@ -3288,7 +3289,7 @@ void EpubReaderActivity::loop() {
     requestUpdate();
     return;
   }
-  if ((pendingRenderModeToast || pendingSafeModeToast) &&
+  if ((pendingRenderModeToast || pendingSafeModeToast || pendingFontDamagedToast) &&
       (millis() - renderModeToastShowTime) >= RENDER_MODE_TOAST_MS) {
     bool toastRegionRestored = false;
     if (renderModeToastRegionSaved) {
@@ -3300,6 +3301,7 @@ void EpubReaderActivity::loop() {
     }
     pendingRenderModeToast = false;
     pendingSafeModeToast = false;
+    pendingFontDamagedToast = false;
     if (!toastRegionRestored) {
       requestUpdate();
     }
@@ -7698,7 +7700,16 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
                           : (tiltPageTurnFeedbackEnabled ? tr(STR_TILT_TO_TURN_ON) : tr(STR_TILT_TO_TURN_OFF));
     drawToastBuffer(renderer, msg);
   }
-  if (pendingSafeModeToast) {
+  if (updatePanel && SdCardFont::takeCorruptGlyphNotice()) {
+    pendingFontDamagedToast = true;
+    renderModeToastShowTime = millis();
+  }
+  // Image blanking may recompose only part of the page. Defer this overlay
+  // until that finishes, so its saved region contains only clean page pixels.
+  const bool deferFontDamagedToast = updatePanel && pageHasImages && !deferImageLoading;
+  if (pendingFontDamagedToast) {
+    if (!deferFontDamagedToast) drawRenderModeToastBuffer(tr(STR_FONT_DAMAGED));
+  } else if (pendingSafeModeToast) {
     drawRenderModeToastBuffer(tr(STR_SAFE_MODE));
   } else if (pendingRenderModeToast) {
     drawRenderModeToastBuffer(labelForRenderModeToast(normalizeRenderMode(renderModeToastMode)));
@@ -7733,6 +7744,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
         // Restore the composed image after legacy blanking or strong cleanup.
         composePageBuffer();
       }
+      if (pendingFontDamagedToast) drawRenderModeToastBuffer(tr(STR_FONT_DAMAGED));
       // The restored image frame becomes the base for the grayscale image
       // planes below. On X3, use the same grayscale-aware base waveform as
       // text-only grayscale turns; other panels keep the FAST fallback behavior.
@@ -7742,6 +7754,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
         renderer.displayBuffer(HalDisplay::FAST_REFRESH);
       }
     } else {
+      if (pendingFontDamagedToast) drawRenderModeToastBuffer(tr(STR_FONT_DAMAGED));
       renderer.displayBuffer(pagesUntilFullRefresh < 0 ? manualScreenRefreshMode() : HalDisplay::HALF_REFRESH);
     }
     // The image's own page is handled above and doesn't count toward the full

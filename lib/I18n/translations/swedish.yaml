@@ -996,3 +996,5 @@ STR_CUSTOM_HEADER_1: "Anpassad header 1"
 STR_CUSTOM_HEADER_2: "Anpassad header 2"
 
 STR_DISABLE_PAGE_TURN_GESTURES: "Inaktivera sidvändningsgester"
+
+STR_FONT_DAMAGED: "Skadad teckensnittsfil"

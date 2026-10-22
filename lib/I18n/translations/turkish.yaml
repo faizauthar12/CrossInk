@@ -996,3 +996,5 @@ STR_CUSTOM_HEADER_1: "Özel başlık 1"
 STR_CUSTOM_HEADER_2: "Özel başlık 2"
 
 STR_DISABLE_PAGE_TURN_GESTURES: "Sayfa çevirme hareketlerini kapat"
+
+STR_FONT_DAMAGED: "Hasarlı yazı tipi dosyası"

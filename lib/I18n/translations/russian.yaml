@@ -996,3 +996,5 @@ STR_CUSTOM_HEADER_1: "Свой заголовок 1"
 STR_CUSTOM_HEADER_2: "Свой заголовок 2"
 
 STR_DISABLE_PAGE_TURN_GESTURES: "Отключить жесты перелистывания"
+
+STR_FONT_DAMAGED: "Повреждённый файл шрифта"

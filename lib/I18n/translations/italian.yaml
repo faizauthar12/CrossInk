@@ -996,3 +996,5 @@ STR_CUSTOM_HEADER_1: "Intestazione personalizzata 1"
 STR_CUSTOM_HEADER_2: "Intestazione personalizzata 2"
 
 STR_DISABLE_PAGE_TURN_GESTURES: "Disattiva gesti cambio pagina"
+
+STR_FONT_DAMAGED: "File del carattere danneggiato"

@@ -996,3 +996,5 @@ STR_CUSTOM_HEADER_1: "Custom Header 1"
 STR_CUSTOM_HEADER_2: "Custom Header 2"
 
 STR_DISABLE_PAGE_TURN_GESTURES: "Disable Page Turn Gestures"
+
+STR_FONT_DAMAGED: "Damaged font file"

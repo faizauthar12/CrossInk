@@ -996,3 +996,5 @@ STR_CUSTOM_HEADER_1: "Egyéni fejléc 1"
 STR_CUSTOM_HEADER_2: "Egyéni fejléc 2"
 
 STR_DISABLE_PAGE_TURN_GESTURES: "Lapozógesztusok kikapcsolása"
+
+STR_FONT_DAMAGED: "Sérült betűtípusfájl"

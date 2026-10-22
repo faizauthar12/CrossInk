@@ -106,6 +106,8 @@
 - Restore Touch Reader Controls in Settings → Controls → Taps & Gestures so reader touch gestures can be re-enabled on the device after being turned off in the web portal (#871).
 - Show all button shortcut settings on the web portal, including option lists too long for the previous response buffer.
 - Import CrossPoint's normal 100% word spacing as 0 instead of maximum spacing, while preserving saved CrossInk spacing levels.
+- Draw damaged SD-font glyphs as blanks and show a one-time warning to reinstall the font (CrossPoint #4091).
+- Avoid large contiguous allocations for EPUB chapter anchors without changing background pagination (anchor-storage portion of CrossPoint #4040).
 
 ### Changed
 
@@ -134,6 +136,7 @@
 - Exclude unused Arduino libraries and Bluetooth/Zigbee components from tuned firmware builds (adapted from Uri Tauber, CrossPoint #3857).
 - Install SD languages and hyphenation packs on PSRAM-equipped readers with small factory data partitions, including X4 Pro, using an SD cache loaded into PSRAM. Startup reuses an open cache file for sequential validation reads. The bootloader, partition table, and firmware slots remain unchanged.
 - Remove the redundant Touch Reader Controls setting from device and web settings; Disable Touchscreen remains the full reader touch lock.
+- Reduce temporary memory used to prepare SD-font character widths, while keeping the cache up to date as text changes (adapted from CrossPoint #3948).
 
 ## [v1.6.1] - 2026-10-03
 
