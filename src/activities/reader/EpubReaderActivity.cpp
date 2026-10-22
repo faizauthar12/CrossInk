@@ -1588,9 +1588,11 @@ void EpubReaderActivity::pauseReadingPaceTimer(const char* reason) {
 void EpubReaderActivity::commitReadingStatsSession() {
   if (!statsTrackingActive) return;
   recordCurrentPageReadingTime("session_commit");
+  readingSessionJournal.flush();
   commitReadingSession(stats, globalStats, sessionReadingSeconds,
                        hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
 }
 
 void EpubReaderActivity::finalizeReadingStatsOnExit() {
@@ -1621,6 +1623,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   }
   statsTrackingActive = enabled;
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
   dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
@@ -1731,6 +1734,15 @@ void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
+    if (epub && !readingSessionJournal.accept(epub->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
+      LOG_ERR("SessionStats", "Reading session checkpoint deferred");
+    }
+    if (epub && readingSessionJournal.revision() != statsCheckpointRevision &&
+        saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
+                                     hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
+                                     epub->getCachePath())) {
+      statsCheckpointRevision = readingSessionJournal.revision();
+    }
     if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
       LOG_ERR("DailyStats", "Cannot record accepted reading interval");
     }
@@ -2529,6 +2541,7 @@ void EpubReaderActivity::onEnter() {
 #endif
   armReadingPaceWarmup("reader_open");
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
   dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 
@@ -5189,8 +5202,10 @@ void EpubReaderActivity::resetReadingPaceData() {
 }
 
 void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
+  readingSessionJournal.flush();
   stats = BookReadingStats{};
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
   dailyReadingSession.reset();
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
@@ -8632,11 +8647,19 @@ void EpubReaderActivity::startDailyReadingInterval() {
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 void EpubReaderActivity::saveProgressBeforeRestart() {
   // Silent network-mode restarts skip onExit(); coordinate with the render task.
   RenderLock lock(*this);
+  recordCurrentPageReadingTime("restart_checkpoint");
+  readingSessionJournal.checkpoint();
+  if (epub && statsTrackingActive) {
+    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
+                                 hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
+                                 epub->getCachePath());
+  }
   if (!saveReadingProgress()) {
     LOG_ERR("READER", "Failed to save progress before restart");
   }

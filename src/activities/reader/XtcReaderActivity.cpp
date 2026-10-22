@@ -133,6 +133,7 @@ void XtcReaderActivity::onEnter() {
   paceDirty = false;
   pendingStatsCommit = false;
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
   dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 
@@ -564,6 +565,7 @@ void XtcReaderActivity::syncStatsTrackingState() {
   }
   statsTrackingActive = active;
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
   dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   pageShownAtMs = millis();
@@ -663,6 +665,15 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
+    if (xtc && !readingSessionJournal.accept(xtc->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
+      LOG_ERR("SessionStats", "Reading session checkpoint deferred");
+    }
+    if (xtc && readingSessionJournal.revision() != statsCheckpointRevision &&
+        saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
+                                     hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
+                                     xtc->getCachePath())) {
+      statsCheckpointRevision = readingSessionJournal.revision();
+    }
     if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
       LOG_ERR("DailyStats", "Cannot record accepted reading interval");
     }
@@ -710,10 +721,12 @@ void XtcReaderActivity::commitReadingStats() {
   }
   if (statsTrackingActive) {
     recordCurrentPageReadingTime("session_commit");
+    readingSessionJournal.flush();
     commitReadingSession(stats, globalStats, sessionReadingSeconds,
                          hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
   }
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
   if ((statsTrackingActive || paceDirty || pendingStatsCommit) && stats.save(xtc->getCachePath())) {
     pendingSync.mark(xtc->getPath(), SyncPending::STATS_BIT);
     paceDirty = false;
@@ -738,8 +751,10 @@ void XtcReaderActivity::applyBookStatsEditsFromDisk() {
 }
 
 void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
+  readingSessionJournal.flush();
   stats = BookReadingStats{};
   sessionReadingSeconds = 0;
+  statsCheckpointRevision = 0;
   dailyReadingSession.reset();
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 }
@@ -1559,11 +1574,19 @@ void XtcReaderActivity::startDailyReadingInterval() {
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
 void XtcReaderActivity::saveProgressBeforeRestart() {
   // Silent network-mode restarts skip onExit(); coordinate with the render task.
   RenderLock lock(*this);
+  recordCurrentPageReadingTime("restart_checkpoint");
+  readingSessionJournal.checkpoint();
+  if (xtc && statsTrackingActive) {
+    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
+                                 hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
+                                 xtc->getCachePath());
+  }
   if (!(flushQueuedProgress())) {
     LOG_ERR("READER", "Failed to save progress before restart");
   }

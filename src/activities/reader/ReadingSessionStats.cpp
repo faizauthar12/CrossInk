@@ -1,5 +1,8 @@
 #include "ReadingSessionStats.h"
 
+#include <Logging.h>
+#include <Memory.h>
+
 void commitReadingSession(BookReadingStats& book, GlobalReadingStats& global, const uint32_t seconds,
                           const ReadingStatsDateTime* sessionStart) {
   // Page intervals longer than the idle threshold are rejected before they
@@ -34,4 +37,32 @@ void refreshGlobalStatsAfterOverlay(GlobalReadingStats& live, const uint32_t res
   } else {
     live.completedBooks = disk.completedBooks;
   }
+}
+
+bool saveReadingSessionCheckpoint(const BookReadingStats& book, const GlobalReadingStats& global, uint32_t seconds,
+                                  const ReadingStatsDateTime* sessionStart, const std::string& cachePath) {
+  // These two snapshots exceed the small task-stack budget. Allocate only at
+  // checkpoint boundaries, never for every page or while rendering text.
+  struct Preview {
+    BookReadingStats book;
+    GlobalReadingStats global;
+  };
+  auto preview = makeUniqueNoThrow<Preview>();
+  if (!preview) {
+    LOG_ERR("SessionStats", "Cannot allocate stats checkpoint");
+    return false;
+  }
+  preview->book = book;
+  preview->global = global;
+  commitReadingSession(preview->book, preview->global, seconds, sessionStart);
+  if (!preview->book.save(cachePath)) return false;
+  preview->global.save();
+  GlobalReadingStats checked;
+  if (!GlobalReadingStats::loadForUpload(checked) ||
+      checked.totalReadingSeconds != preview->global.totalReadingSeconds ||
+      checked.totalSessions != preview->global.totalSessions) {
+    LOG_ERR("SessionStats", "Global stats checkpoint could not be verified");
+    return false;
+  }
+  return true;
 }

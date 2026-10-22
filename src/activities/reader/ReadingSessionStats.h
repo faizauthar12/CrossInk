@@ -19,3 +19,8 @@ void importBookStatsEdits(BookReadingStats& live, const BookReadingStats& disk);
 // copy only after a local reset; otherwise imports the completed-books count
 // the stats screen can edit and keeps unsaved live counters.
 void refreshGlobalStatsAfterOverlay(GlobalReadingStats& live, uint32_t resetRevisionAtOpen);
+
+// Persist a preview that includes the live session without consuming it. Safe
+// for temporary overlays, restart handoffs, and periodic durable checkpoints.
+bool saveReadingSessionCheckpoint(const BookReadingStats& book, const GlobalReadingStats& global, uint32_t seconds,
+                                  const ReadingStatsDateTime* sessionStart, const std::string& cachePath);

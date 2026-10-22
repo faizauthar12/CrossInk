@@ -1688,3 +1688,52 @@ a restart before another operation or activation of its new mapping.
 Section cache version 96 (partial version `0xD1`) adds breakable, space-free token boundaries after visible hyphens and dashes. Both complete and suspended caches from earlier versions rebuild automatically.
 
 Section cache version 97 (partial version `0xD2`) prevents justification from stretching boundaries inside hyphenated words. Complete and suspended layouts from earlier versions rebuild automatically; the binary payload is unchanged.
+
+
+## Reading session outbox
+
+New measured sessions supplement the existing book/global counters and daily
+history; no existing stats file or EPUB cache format changes. Each tracking
+session keeps a random 128-bit ID and cumulative active seconds, checkpointed
+after another 60 accepted reading seconds and on normal reader exit or tracking
+disable. Matching previews of the existing book/global counters are saved without
+consuming the live session, including temporary overlays and restart handoffs. A checkpoint excludes idle page intervals using the existing timer.
+Intervals with an unavailable/corrected clock remain in the existing counters
+but do not produce fabricated dated sessions. The outbox is independent of book
+cache cleanup and follows the configured KOReader document identity at capture.
+
+`/.crosspoint/reading_sessions/<32-lowercase-hex-id>.bin` uses SyncFiles atomic
+writes, CRC validation, and `.tmp`/`.bak` recovery. Fields are written separately
+in the firmware's little-endian integer representation, without struct padding:
+
+| Field | Bytes |
+|---|---:|
+| Format version (1) | 1 |
+| Session ID, ASCII hex without terminator | 32 |
+| Document ID, ASCII hex without terminator | 32 |
+| UTC start timestamp, seconds | 8 |
+| UTC end timestamp, seconds | 8 |
+| Cumulative active reading seconds | 4 |
+| Signed UTC offset, minutes | 2 |
+| CRC32 over preceding bytes | 4 |
+
+Session IDs remain unchanged as checkpoints grow and across upload retries.
+Uploads use the existing stats credentials and privacy switches, with at most
+20 records per network pass. A specific `accepted_session_ids` acknowledgment is
+required before deleting the local file and its recovery copies. An older server
+without `/api/v1/stats/sessions` leaves the outbox intact and does not invalidate
+support for the older stats endpoints. Corrupt/unreadable records and failed
+uploads are retained. Reading fragments under ten seconds are not exported,
+matching the current BookOrbit minimum; existing counters keep their own rules.
+
+This adds future session detail only. Old totals, daily time, and streak history
+are retained without guessing historical sessions. Clock/offset changes and gaps between accepted active intervals start a
+new session identity, so a paused reader does not spread reading time across
+unread hours or dates. Future-dated records are retained after clock correction
+while other valid sessions continue to upload. Device display continues to use the existing counters;
+imported aggregate stats never enter this local measured-session outbox.
+
+Automatic BookOrbit export requires a resolved book match. EPUB progress normally
+supplies the matching metadata. XTC's stats-only protocol currently supplies no
+title/author, so its sessions require an existing or manually established match
+to the corresponding EPUB in BookOrbit.

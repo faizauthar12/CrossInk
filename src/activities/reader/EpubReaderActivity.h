@@ -25,6 +25,7 @@
 #include "ManualPageTurnQueue.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "ReadingSessionJournal.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/OptionPopup.h"
@@ -193,6 +194,8 @@ class EpubReaderActivity final : public Activity {
   uint16_t sessionPaceSampleCount = 0;
   uint32_t sessionReadingSeconds = 0;
   DailyReadingStats::Session dailyReadingSession;
+  ReadingSessionJournal::Session readingSessionJournal;
+  uint32_t statsCheckpointRevision = 0;
   void startDailyReadingInterval();
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
   bool bookHasCustomReaderSettings = false;
