@@ -4970,16 +4970,31 @@ class SimulatorSmokeTest {
         // Touch: only a completed tap on Later dismisses; a swipe that starts on the buttons pages.
         if (!activityManager.isCurrentActivityNamed("Home")) fail("Expected Home before What's New touch checks");
         saveReleaseNotesState(0, RELEASE_NOTES_REVISION);
+        {
+          RenderLock lock;
+          const GfxRenderer::Orientation orientations[] = {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise,
+                                                           GfxRenderer::LandscapeCounterClockwise,
+                                                           GfxRenderer::PortraitInverted};
+          renderer.setOrientation(orientations[releaseNotesPass % 4]);
+        }
         openFirstRunReleaseNotes("What's New for touch");
         releaseNotesPhase = 14;
         break;
       case 14: {
         const auto& notes = currentReleaseNotes();
         if (notes.simulatorPageCount() < 2) fail("Touch swipe check needs a multi-page What's New");
+        char captureName[48];
+        std::snprintf(captureName, sizeof(captureName), "release-notes-touch-orientation-%d", releaseNotesPass);
+        captureStatusBarScreen(captureName);
         const Rect later = notes.simulatorActionRect(1);
         if (later.width <= 0 || later.height <= 0) fail("What's New has no Later button");
         const int x = later.x + later.width / 2;
         const int y = later.y + later.height / 2;
+        // First check a fresh-screen tap in each orientation, then a swipe followed by a tap.
+        if (releaseNotesPass < 4) {
+          releaseNotesPhase = 15;
+          break;
+        }
         inputScript = {touchDown(x, y),
                        touchMove(x, y - 120),
                        touchMove(x, y - 240),
@@ -4991,7 +5006,9 @@ class SimulatorSmokeTest {
       }
       case 15: {
         const auto& notes = currentReleaseNotes();
-        if (notes.simulatorPage() != 1) fail("Swipe from Later did not page (page=%d)", notes.simulatorPage());
+        const int expectedPage = releaseNotesPass < 4 ? 0 : 1;
+        if (notes.simulatorPage() != expectedPage)
+          fail("Later touch check expected page %d, got %d", expectedPage, notes.simulatorPage());
         if (APP_STATE.releaseNotesSeen != 0) fail("Swipe from Later marked What's New seen");
         const Rect later = notes.simulatorActionRect(1);
         const int x = later.x + later.width / 2;
@@ -5005,6 +5022,15 @@ class SimulatorSmokeTest {
         if (APP_STATE.releaseNotesSeen != RELEASE_NOTES_REVISION ||
             savedStateValue("releaseNotesSeen") != RELEASE_NOTES_REVISION)
           fail("Later tap did not save releaseNotesSeen");
+        if (++releaseNotesPass < 8) {
+          releaseNotesPhase = 13;
+          break;
+        }
+        releaseNotesPass = 0;
+        {
+          RenderLock lock;
+          renderer.setOrientation(GfxRenderer::Portrait);
+        }
         releaseNotesPhase = 17;
         break;
 #endif
