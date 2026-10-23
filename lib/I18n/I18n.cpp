@@ -270,7 +270,7 @@ Result I18n::discover(Catalog& catalog, void* context, bool (*continueWork)(void
     }
     char filename[MAX_FILENAME];
     const size_t nameLength = file.getName(filename, sizeof(filename));
-    if (file.isDirectory() || !nameLength || nameLength >= sizeof(filename) - 1) {
+    if (file.isDirectory() || !nameLength || nameLength >= sizeof(filename) - 1 || isAppleDoubleFile(filename)) {
       file.close();
       continue;
     }

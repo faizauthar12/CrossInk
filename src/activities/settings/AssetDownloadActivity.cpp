@@ -286,7 +286,8 @@ void AssetDownloadActivity::installSelected() {
     return;
   }
   if (result != Result::Ok) {
-    LOG_ERR("ASSET", "Source discovery: %s", AssetDownloadService::resultName(result));
+    LOG_ERR("ASSET", "Pre-download SD check failed: code=%s result=%s", catalog_->entries[selected_].code,
+            AssetDownloadService::resultName(result));
     showError(result == Result::Collision ? StrId::STR_LANGUAGE_DUPLICATE : StrId::STR_LANGUAGE_IO_ERROR,
               Pending::Install);
     return;

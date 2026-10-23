@@ -483,7 +483,38 @@ void batchedInstalls() {
   CHECK(std::memcmp(verified.slot(0), original.slot(0), SLOT_SIZE) == 0);
 }
 }  // namespace
+void inspectionDiagnostics() {
+  Inspector inspector;
+  Metadata metadata;
+  InspectionDiagnostic diagnostic;
+  Source syntax{"_language_code: \"VI\"\n_language_name: unquoted\n"};
+  CHECK(inspector.inspect(syntax.input(), metadata, &diagnostic) == Result::Invalid);
+  CHECK(diagnostic.line == 2 && diagnostic.offset == syntax.bytes.size());
+  CHECK(std::strstr(diagnostic.reason, "YAML syntax"));
+  Source bom{std::string("\xef\xbb\xbf") + "_language_code: \"VI\"\n"};
+  CHECK(inspector.inspect(bom.input(), metadata, &diagnostic) == Result::Invalid);
+  CHECK(diagnostic.line == 1 && std::strstr(diagnostic.reason, "BOM"));
+  Source nul{std::string("_language_code: ") + '\0' + "\"VI\"\n"};
+  CHECK(inspector.inspect(nul.input(), metadata, &diagnostic) == Result::Invalid);
+  CHECK(diagnostic.line == 1 && diagnostic.offset == 17);
+  CHECK(std::strstr(diagnostic.reason, "NUL byte"));
+  Source missing{"STR_HOME: \"Home\"\n"};
+  CHECK(inspector.inspect(missing.input(), metadata, &diagnostic) == Result::MetadataMissing);
+  CHECK(std::strstr(diagnostic.reason, "missing _language_code"));
+  Source good{"_language_code: \"VI\"\n_language_name: \"Tiếng Việt\"\nSTR_HOME: \"Home\"\n"};
+  CHECK(inspector.inspect(good.input(), metadata, &diagnostic) == Result::Ok);
+  CHECK(!diagnostic.reason && diagnostic.line == 0 && diagnostic.offset == 0);
+  Source broken{good.bytes};
+  broken.failAt = 0;
+  CHECK(inspector.inspect(broken.input(), metadata, &diagnostic) == Result::Io);
+  CHECK(diagnostic.line == 1 && diagnostic.offset == 0);
+  CHECK(std::strstr(diagnostic.reason, "source read failed"));
+  CHECK(inspector.inspect({}, metadata, &diagnostic) == Result::Invalid);
+  CHECK(std::strstr(diagnostic.reason, "missing source reader"));
+}
+
 int main() {
+  inspectionDiagnostics();
   basics();
   unchanged();
   parser();

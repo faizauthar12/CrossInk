@@ -65,9 +65,16 @@ class Reader {
   const ValidationOptions* options;
   uint8_t* buffer;
   size_t cursor = 0, available = 0, total = 0;
+  const char* error = nullptr;
+  Result fail(Result result, const char* reason) {
+    error = reason;
+    return result;
+  }
 
  public:
   Reader(Input in, uint8_t* buf, const ValidationOptions* opts = nullptr) : input(in), options(opts), buffer(buf) {}
+  const char* errorReason() const { return error; }
+  size_t offset() const { return total; }
   Result line(char* out, bool& eof) {
     size_t length = 0;
     eof = false;
@@ -75,7 +82,7 @@ class Reader {
       if (cursor == available) {
         if (options && options->continueWork && !options->continueWork(options->context)) return Result::Cancelled;
         const int n = input.read(input.context, buffer, 256);
-        if (n < 0 || n > 256) return Result::Io;
+        if (n < 0 || n > 256) return fail(Result::Io, "source read failed");
         cursor = 0;
         available = static_cast<size_t>(n);
         if (n == 0) {
@@ -83,16 +90,16 @@ class Reader {
           break;
         }
       }
-      if (++total > MAX_SOURCE_SIZE) return Result::TooLarge;
+      if (++total > MAX_SOURCE_SIZE) return fail(Result::TooLarge, "source exceeds byte limit");
       const char c = static_cast<char>(buffer[cursor++]);
-      if (c == '\0') return Result::Invalid;
+      if (c == '\0') return fail(Result::Invalid, "NUL byte in source");
       if (c == '\n') break;
-      if (length == LINE_SIZE - 1) return Result::TooLarge;
+      if (length == LINE_SIZE - 1) return fail(Result::TooLarge, "line exceeds byte limit");
       out[length++] = c;
     }
     if (length && out[length - 1] == '\r') --length;
     out[length] = '\0';
-    return validUtf8(out, length) ? Result::Ok : Result::Invalid;
+    return validUtf8(out, length) ? Result::Ok : fail(Result::Invalid, "invalid UTF-8 or control character");
   }
 };
 
@@ -507,33 +514,53 @@ struct Inspector::Impl : Workspace {};
 Inspector::Inspector() { workspace_.init(MemoryPool::None); }
 Inspector::~Inspector() = default;
 
-Result inspect(Input input, Metadata& metadata) {
+Result inspect(Input input, Metadata& metadata, InspectionDiagnostic* diagnostic) {
   Inspector inspector;
-  return inspector.inspect(input, metadata);
+  return inspector.inspect(input, metadata, diagnostic);
 }
-Result Inspector::inspect(Input input, Metadata& metadata) {
+Result Inspector::inspect(Input input, Metadata& metadata, InspectionDiagnostic* diagnostic) {
+  if (diagnostic) *diagnostic = {};
   auto* work = workspace_.get();
-  if (!work) return Result::Memory;
+  if (!work || !input.read) {
+    if (diagnostic) diagnostic->reason = work ? "missing source reader" : "metadata workspace allocation failed";
+    return work ? Result::Invalid : Result::Memory;
+  }
   work->unknownCount = 0;
   metadata = {};
   Reader reader(input, work->inputBuffer);
+  size_t line = 0;
+  const auto reject = [&](Result result, const char* reason) {
+    if (diagnostic) *diagnostic = {reason, line, reader.offset()};
+    return result;
+  };
   bool direction = false;
   while (true) {
+    ++line;
     bool eof;
     auto result = reader.line(work->line, eof);
-    if (result != Result::Ok) return result;
+    if (result != Result::Ok) return reject(result, reader.errorReason());
     if (eof) break;
+    if (line == 1 && std::strncmp(work->line, "\xef\xbb\xbf", 3) == 0)
+      return reject(Result::Invalid, "UTF-8 BOM is not supported");
     char *key, *value;
     result = parseLine(work->line, key, value);
-    if (result != Result::Ok) return result;
+    if (result != Result::Ok)
+      return reject(result, result == Result::TooLarge ? "YAML key exceeds byte limit"
+                                                       : "invalid YAML syntax: expected key: \"value\"");
     if (!key) continue;
     if (key[0] != '_') break;
     result = remember(*work, hash(key), nullptr);
-    if (result != Result::Ok) return result;
+    if (result != Result::Ok)
+      return reject(result, result == Result::Duplicate ? "duplicate metadata key" : "metadata key limit exceeded");
     result = metadataLine(key, value, metadata, direction);
-    if (result != Result::Ok) return result;
+    if (result != Result::Ok) return reject(result, "invalid language metadata value");
   }
-  return finishMetadata(metadata, direction);
+  const auto result = finishMetadata(metadata, direction);
+  return result == Result::Ok
+             ? result
+             : reject(result, result == Result::MetadataMissing
+                                  ? "missing _language_code or _language_name before translation strings"
+                                  : "English is built in; EN is not an SD language");
 }
 
 Result validate(Input input, const Schema& schema, Metadata& metadata, const ValidationOptions& options) {
