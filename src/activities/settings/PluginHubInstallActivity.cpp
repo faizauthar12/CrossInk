@@ -5,6 +5,7 @@
 #include <Memory.h>
 #include <WiFi.h>
 
+#include <cstdio>
 #include <utility>
 
 #include "activities/util/ConfirmationActivity.h"
@@ -83,7 +84,20 @@ HttpDownloader::DownloadError PluginHubInstallActivity::installPluginHub() {
     return cancelDownload ? HttpDownloader::ABORTED : HttpDownloader::FILE_ERROR;
   }
   const std::string stage = PluginBundle::stagingPath(PLUGIN_HUB_DIR);
+  constexpr unsigned fileCount = sizeof(PLUGIN_HUB_FILES) / sizeof(PLUGIN_HUB_FILES[0]);
+  unsigned fileIndex = 0;
   for (const char* filename : PLUGIN_HUB_FILES) {
+    {
+      RenderLock lock;
+      char step[64];
+      std::snprintf(step, sizeof(step), tr(STR_ASSET_STEP_FORMAT), ++fileIndex, fileCount);
+      statusMessage = step;
+      statusMessage += " - ";
+      statusMessage += filename;
+      downloadProgress = downloadTotal = 0;
+    }
+    // Show every file transition, even when the next transfer finishes quickly.
+    requestUpdateAndWait();
     const std::string url = std::string(PLUGIN_HUB_BASE_URL) + filename;
     const auto result = downloadFile(url, stage + "/" + filename);
     if (result != HttpDownloader::OK) {
