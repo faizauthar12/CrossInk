@@ -516,7 +516,7 @@ void XtcReaderActivity::loop() {
       uint32_t forwardReadSeconds = 0;
       const bool shouldRecordForwardRead = forwardPageReadElapsed(forwardReadSeconds, "page_forward");
       recordCurrentPageReadingTime("page_forward");
-      pluginEvents.noteTurn(!skipPages);
+      pluginEvents.noteTurn(true);
       currentPage += skipAmount;
       if (currentPage >= pageCount) {
         currentPage = pageCount;  // Allow showing "End of book"
