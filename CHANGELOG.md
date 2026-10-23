@@ -38,7 +38,6 @@
 - Pause and resume page-turn taps and swipes with the Disable Page Turn Gestures shortcut, without changing menu access or other touch gestures.
 - Enable Tilt: Next Page Only in Controls to advance a page with either tilt direction on supported devices.
 - Jump to a percentage in XTC and XTCH books from the reader menu, using the same slider and numeric keypad as EPUB books.
-
 - Install SD card plugins with browser interfaces, on-device catalogs, sign-in, and configurable download folders. Enable Plugins in Settings → System, then open Plugins from Home. Download the optional Plugin Hub to discover, install, and update compatible plugins.
 
 ### Fixed

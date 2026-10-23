@@ -266,11 +266,109 @@ std::optional<uint32_t> EpubReaderCompletionSmokeTest::statusAnchor;
 
 struct ReaderDrawerLayoutSmokeTest {
   template <typename Capture>
+  static bool verifyPreview(const Capture& capture) {
+#if CROSSINK_APP_READER_SAMPLE_PREVIEW
+    return true;
+#else
+    const auto savedInsets = renderer.getViewableInsets();
+    const auto savedOrientation = renderer.getOrientation();
+    const auto savedMargin = SETTINGS.screenMarginHorizontal;
+    const auto savedAlignment = SETTINGS.paragraphAlignment;
+    renderer.setViewableInsets(ScreenInsets{{{21, 7, 32, 13}}});
+    bool valid = true;
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::PortraitInverted,
+                                   GfxRenderer::LandscapeClockwise, GfxRenderer::LandscapeCounterClockwise}) {
+      renderer.setOrientation(orientation);
+      for (const uint8_t margin : {12, 48}) {
+        SETTINGS.screenMarginHorizontal = margin;
+        sdFontSystem.ensureLoaded(renderer);
+        const int fontId = SETTINGS.getReaderFontId();
+        int top, right, bottom, left;
+        renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+        const int clockReservation = ReaderUtils::getTopStatusBarReservedHeight(renderer);
+        const int y =
+            top + std::max(static_cast<int>(SETTINGS.screenMarginVertical),
+                           clockReservation > 0 ? clockReservation + ReaderUtils::TOP_STATUS_BAR_TEXT_PADDING : 0);
+        const int width = renderer.getScreenWidth() - left - right - margin * 2;
+        for (const auto alignment : {CssTextAlign::Left, CssTextAlign::Right}) {
+          SETTINGS.paragraphAlignment = static_cast<uint8_t>(alignment);
+          BlockStyle style;
+          style.alignment = alignment;
+          const int wordX = alignment == CssTextAlign::Left
+                                ? 0
+                                : width - renderer.getTextAdvanceX(fontId, "Preview", EpdFontFamily::REGULAR);
+          auto block = std::make_shared<TextBlock>(
+              std::vector<std::string>{"Preview"}, std::vector<int16_t>{static_cast<int16_t>(wordX)},
+              std::vector<EpdFontFamily::Style>{EpdFontFamily::REGULAR}, std::vector<uint8_t>{},
+              std::vector<uint16_t>{}, std::vector<uint16_t>{}, std::vector<uint8_t>{}, std::vector<bool>{false},
+              style);
+          Page page;
+          page.elements.push_back(std::make_unique<PageLine>(block, 0, 0));
+          auto model = std::make_unique<TouchReaderPreviewModel>();
+          valid &= model->capture(page, renderer, fontId, SETTINGS.lineHeightPercent, left + margin, y);
+          EpubReaderDrawerActivity editor(renderer, mappedInputManager, {}, model.get(), 0.0f, 0, 0, false, false,
+                                          false, false, false, false, false, false, true, true, 0, 0, 5, false);
+          editor.onEnter();
+          const auto bounds = [&]() {
+            const auto area = editor.previewBounds();
+            std::array<int, 4> result{renderer.getScreenWidth(), renderer.getScreenHeight(), -1, -1};
+            for (int py = 0; py < area.bottom(); ++py) {
+              for (int px = 0; px < renderer.getScreenWidth(); ++px) {
+                if (!renderer.isPixelBlack(px, py)) continue;
+                result[0] = std::min(result[0], px);
+                result[1] = std::min(result[1], py);
+                result[2] = std::max(result[2], px);
+                result[3] = std::max(result[3], py);
+              }
+            }
+            return result;
+          };
+          const auto draw = [&]() {
+            renderer.clearScreen();
+            editor.previewDirty = true;
+            std::optional<FontCacheManager::PrewarmScope> prewarm;
+            int previewFontId;
+            return editor.renderPreview(previewFontId, prewarm);
+          };
+          const std::string stem = "reader-preview-o-" + std::to_string(orientation) + "-margin-" +
+                                   std::to_string(margin) + "-align-" + std::to_string(static_cast<int>(alignment));
+          valid &= draw();
+          const auto source = bounds();
+          capture(stem + "-source");
+          // A rebuilt font uses the reflow path even at the original point size.
+          // Its page edges must still match the captured reader layout.
+          editor.previewFontMetricsChanged = true;
+          valid &= draw();
+          const auto reflow = bounds();
+          const bool sameBounds = source[2] >= source[0] && source == reflow;
+          if (!sameBounds) {
+            LOG_ERR("SMOKE", "%s moved from x=%d..%d to x=%d..%d after preview reflow", stem.c_str(), source[0],
+                    source[2], reflow[0], reflow[2]);
+          }
+          valid &= sameBounds;
+          capture(stem + "-reflow");
+          editor.draft.readerFontPointSize += 2;
+          valid &= draw();
+          valid &= bounds()[2] >= bounds()[0];
+          capture(stem + "-larger-font");
+          editor.onExit();
+        }
+      }
+    }
+    SETTINGS.screenMarginHorizontal = savedMargin;
+    SETTINGS.paragraphAlignment = savedAlignment;
+    renderer.setViewableInsets(savedInsets);
+    renderer.setOrientation(savedOrientation);
+    return valid;
+#endif
+  }
+
+  template <typename Capture>
   static bool verify(RenderLock& lock, const Capture& capture) {
     namespace fui = freeink::ui;
     const auto savedScale = SETTINGS.uiScale;
     const auto savedOrientation = renderer.getOrientation();
-    bool valid = true;
+    bool valid = verifyPreview(capture);
     for (const auto orientation :
          {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise, GfxRenderer::LandscapeCounterClockwise}) {
       renderer.setOrientation(orientation);

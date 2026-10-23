@@ -2634,21 +2634,20 @@ void EpubReaderDrawerActivity::renderPreviewText(const ReaderSettingsDraft& prev
   }
   int orientedTop, orientedRight, orientedBottom, orientedLeft;
   renderer.getOrientedViewableTRBL(&orientedTop, &orientedRight, &orientedBottom, &orientedLeft);
-  (void)orientedRight;
   (void)orientedBottom;
-  (void)orientedLeft;
   const int clockReservation = ReaderUtils::getTopStatusBarReservedHeight(renderer);
   const int previewYOffset =
       orientedTop + std::max(static_cast<int>(previewSettings.screenMarginVertical),
                              clockReservation > 0 ? clockReservation + ReaderUtils::TOP_STATUS_BAR_TEXT_PADDING : 0);
-  const int previewWidth =
-      std::max(1, renderer.getScreenWidth() - static_cast<int>(previewSettings.screenMarginHorizontal) * 2);
+  const int previewXOffset = orientedLeft + previewSettings.screenMarginHorizontal;
+  const int previewWidth = std::max(1, renderer.getScreenWidth() - orientedLeft - orientedRight -
+                                           static_cast<int>(previewSettings.screenMarginHorizontal) * 2);
   renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
   previewModel->renderText(
-      renderer, previewFontId, previewSettings.screenMarginHorizontal, previewYOffset, previewWidth,
-      previewSettings.lineHeightPercent, previewSettings.wordSpacing, previewSettings.paragraphAlignment,
-      previewSettings.focusReadingEnabled, previewSettings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(),
-      std::numeric_limits<int>::max(), CrossPointSettings::characterSpacingLevel(previewSettings.characterSpacing));
+      renderer, previewFontId, previewXOffset, previewYOffset, previewWidth, previewSettings.lineHeightPercent,
+      previewSettings.wordSpacing, previewSettings.paragraphAlignment, previewSettings.focusReadingEnabled,
+      previewSettings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(), std::numeric_limits<int>::max(),
+      CrossPointSettings::characterSpacingLevel(previewSettings.characterSpacing));
   renderer.endTextClip();
 }
 
