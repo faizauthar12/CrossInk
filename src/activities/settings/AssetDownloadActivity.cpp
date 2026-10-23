@@ -198,10 +198,7 @@ void AssetDownloadActivity::fetch() {
   showBusy();
   AssetCatalog::Options parserOptions;
   parserOptions.expectedKind = kind_;
-  const char* version = AppVersion::version();
-  const size_t versionLength = std::strlen(version);
-  const bool rc = versionLength >= 3 && std::strcmp(version + versionLength - 3, "-RC") == 0;
-  parserOptions.expectedChannel = rc ? AssetCatalog::Channel::Rc : AssetCatalog::Channel::Stable;
+  parserOptions.expectedChannel = AssetDownloadService::channelForVersion(AppVersion::version());
   parserOptions.expectedSource = I18n::sourceContract();
   parserOptions.expectedKeyset = I18n::keysetContract();
   parserOptions.supportedTranslation = [](const char* code, void*) { return I18n::supportedDownload(code); };
@@ -217,6 +214,7 @@ void AssetDownloadActivity::fetch() {
   bool valid = AssetCatalog::catalogPath(parserOptions, relative, sizeof(relative)) &&
                AssetDownloadService::buildUrl(catalogEndpoints_, relative, url_, sizeof(url_));
   if (valid) {
+    LOG_DBG("ASSET", "Fetching catalog: %s", url_);
     HttpDownloader::DownloadOptions options;
     options.maxBytes = AssetCatalog::MAX_CATALOG_BYTES;
     options.maxRedirects = 2;
