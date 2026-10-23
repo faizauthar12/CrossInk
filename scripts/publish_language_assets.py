@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import quote
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'scripts'))
@@ -24,6 +25,8 @@ def parse_args():
     parser.add_argument('--bucket', default=os.environ.get('LANGUAGE_S3_BUCKET', 'crossink-languages'))
     parser.add_argument('--region', default=os.environ.get('AWS_REGION', 'us-east-1'))
     parser.add_argument('--prefix', default='v1')
+    parser.add_argument('--release-tag', help='Build from this published GitHub release and its exact checked-out tag')
+    parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY'), help='GitHub owner/repository for --release-tag')
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z0-9][a-z0-9.-]+', args.bucket) or not re.fullmatch(r'[a-z0-9-]+', args.region):
         parser.error('invalid bucket or region')
@@ -31,6 +34,33 @@ def parse_args():
         parser.error('prefix must be nonempty path components without dots')
 
     return args
+
+
+def release_identity(tag, repository, commit, channel=None):
+    """Fail before S3 access unless this is the clean source of a published release."""
+    if not repository or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+        raise RuntimeError('--release-tag requires a GitHub owner/repository')
+    is_rc = bool(re.fullmatch(r'rc-[A-Za-z0-9._-]+-[0-9a-f]{7}', tag))
+    if not is_rc and not re.fullmatch(r'v[0-9]+(?:\.[0-9]+){2,3}', tag):
+        raise RuntimeError('unsupported firmware release tag: ' + tag)
+    tag_commit = subprocess.check_output(
+        ['git', '-C', str(root), 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], text=True).strip()
+    if tag_commit != commit:
+        raise RuntimeError('checked-out source does not match release tag')
+    dirty = subprocess.check_output(
+        ['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=no'], text=True).strip()
+    if dirty:
+        raise RuntimeError('release publication requires clean tracked source files and submodules')
+    release = json.loads(subprocess.check_output(
+        ['gh', 'api', f'repos/{repository}/releases/tags/{quote(tag, safe="")}'], text=True))
+    if (release.get('tag_name') != tag or release.get('draft') is not False
+            or not release.get('published_at') or release.get('prerelease') is not is_rc):
+        raise RuntimeError('release must be published and its prerelease flag must match the tag')
+    expected_channel = 'rc' if is_rc else 'stable'
+    if channel is not None and channel != expected_channel:
+        raise RuntimeError('release tag does not match requested channel')
+    # Match package_languages.py in the RC and stable release workflows.
+    return (tag if is_rc else tag[1:]), expected_channel
 
 
 def encode(value):
@@ -85,8 +115,10 @@ def validate_companions(catalog, files):
 
 def build_languages(version, commit):
     from generate_language_template import generate
-    # Use current working files, including edits; never label these as a published release.
-    artifacts = generate(version + '-local', commit, 'local-fixture')
+    released = bool(args.release_tag)
+    provenance = 'published-release' if released else 'local-working-files'
+    artifacts = generate(version if released else version + '-local', commit,
+                         'release-build' if released else 'local-fixture')
     template = json.loads(artifacts['language-template.json'])
     sources = {str(p.relative_to(root)): p.read_bytes() for p in sorted((root / 'lib/I18n/translations').glob('*.yaml'))}
     for name in ('LICENSE', 'lib/I18n/languages.json', 'scripts/gen_i18n.py', 'scripts/generate_language_template.py', 'scripts/publish_language_assets.py'):
@@ -122,11 +154,11 @@ def build_languages(version, commit):
         code = item['code']
         entries.append({'code': code, 'name': item['name'], 'bytes': len(data), 'sha256': sha(data)})
         notices[code] = {'license': 'MIT', 'files': [refs['LICENSE']]}
-        companions[code] = {'revision': commit, 'provenance': 'local-working-files',
+        companions[code] = {'revision': commit, 'provenance': provenance,
                             'files': [refs[originals[code]], *common]}
     put('notices.json', encode({'translation': notices}))
     put('sources.json', encode({'translation': companions}))
-    put('snapshot.json', encode({'revision': revision, 'sourceCommit': commit, 'status': 'local-working-files',
+    put('snapshot.json', encode({'revision': revision, 'sourceCommit': commit, 'status': provenance,
                                 'firmwareVersion': version, 'files': {k: sha(v) for k, v in files.items()}}))
     catalog = {'schema': 1, 'kind': 'translation', 'channel': args.channel, 'revision': revision,
                'format': 1, 'requires': 0, 'notices': 'notices.json', 'sources': 'sources.json',
@@ -147,7 +179,7 @@ def build_hyphenation():
     for code in CODES:
         name = f'lib/Epub/Epub/hyphenation/generated/hyph-{code}.trie.h'
         hfiles['source/firmware/' + name] = (root / name).read_bytes()
-    hrevision = sha(b'crossink-local-hyphenation-v1\n' + encode({k: sha(v) for k, v in sorted(hfiles.items())}))[:40]
+    hrevision = sha(b'crossink-hyphenation-v3\n' + encode({k: sha(v) for k, v in sorted(hfiles.items())}))[:40]
     hbase = f'snapshots/{hrevision}'
     hentries, hnotices, hsources = [], {}, {}
     def href(name):
@@ -166,16 +198,18 @@ def build_hyphenation():
         hentries.append({'code': code, 'bytes': len(data), 'sha256': sha(data)})
         pattern = 'source/hypher/patterns/hyph-' + ('de-1996' if code == 'de' else code) + '.tex'
         # The pattern's own license is authoritative, not Hypher's MIT license.
-        hnotices[code] = {'license': 'See per-pattern terms', 'files': [href(pattern),
+        hnotices[code] = {'license': 'See per-pattern terms', 'licenses': ['See per-pattern terms'],
+            'licenseDeclaration': 'Original authorship and license terms are preserved in the included pattern source.',
+            'files': [href(pattern),
             href('source/hypher/README.md'), href('source/hypher/LICENSE-MIT'),
             href('source/hypher/LICENSE-APACHE')]}
-        hsources[code] = {'provenance': 'local-working-files', 'files': [href(pattern),
+        hsources[code] = {'provenance': 'source-snapshot', 'files': [href(pattern),
             href(f'source/firmware/lib/Epub/Epub/hyphenation/generated/hyph-{code}.trie.h'),
             href('source/firmware/scripts/package_hyphenation.py'),
             href('source/firmware/scripts/generate_hyphenation_trie.py')]}
     hfiles['notices.json'] = encode({'hyphenation': hnotices})
     hfiles['sources.json'] = encode({'hyphenation': hsources})
-    hfiles['snapshot.json'] = encode({'revision': hrevision, 'status': 'local-working-files',
+    hfiles['snapshot.json'] = encode({'revision': hrevision, 'status': 'source-snapshot',
                                     'files': {hbase + '/' + k: sha(v) for k, v in hfiles.items()}})
     hcatalog = {'schema': 1, 'kind': 'hyphenation', 'channel': args.channel, 'revision': hrevision,
                 'format': 1, 'requires': 0, 'notices': 'notices.json', 'sources': 'sources.json',
@@ -216,7 +250,9 @@ def main():
     args = parse_args()
     commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
     version = re.search(r'^version\s*=\s*(\S+)', (root / 'platformio.ini').read_text(), re.M).group(1)
-    if args.channel is None:
+    if args.release_tag:
+        version, args.channel = release_identity(args.release_tag, args.repository, commit, args.channel)
+    elif args.channel is None:
         args.channel = 'rc' if os.environ.get('CROSSINK_RC_HASH') or version.endswith('-RC') else 'stable'
     bundles = []
     if args.assets in ('both', 'languages'):

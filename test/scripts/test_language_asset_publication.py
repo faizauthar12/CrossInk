@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('publisher', ROOT / 'scripts/publish_language_assets.py')
 publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
+import export_github_language_assets as github_export
 
 
 def bundle(source='a', keyset='b', revision='c', text=b'French', channel='stable', kind='translation'):
@@ -223,6 +225,126 @@ class PublicationTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'AccessDenied'):
                 self.run_publisher('--publish')
         self.assertEqual(self.writes, [])
+
+    def test_invalid_release_stops_before_any_s3_access(self):
+        with self.assertRaisesRegex(RuntimeError, 'requires clean'):
+            self.run_publisher('--publish', '--release-tag', 'v2.0.0', '--repository', 'uxjulia/CrossInk')
+        self.assertEqual(self.reads, [])
+        self.assertEqual(self.writes, [])
+
+
+class GitHubExportTest(unittest.TestCase):
+    def test_exports_individual_files_and_frozen_catalog_for_each_kind(self):
+        bundles = [bundle(), bundle(kind='hyphenation', revision='f')]
+        files = github_export.github_files(bundles)
+        for catalog, payloads in bundles:
+            key = f"catalogs/stable/{catalog['kind']}.json"
+            self.assertEqual(files[key], files[f"snapshots/{catalog['revision']}/{key}"])
+            for name, data in payloads.items():
+                self.assertEqual(files[name], data)
+        self.assertFalse(any(name.endswith('.zip') for name in files))
+
+    def test_latest_contract_advances_without_deleting_older_snapshots_or_rc(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            old = github_export.github_files([bundle()])
+            rc = github_export.github_files([bundle(channel='rc')])
+            github_export.write_files(output, old)
+            github_export.write_files(output, rc)
+            changed = github_export.github_files([bundle(source='d', revision='d')])
+            github_export.write_files(output, changed)
+            key = 'catalogs/stable/translation.json'
+            self.assertEqual((output / key).read_bytes(), changed[key])
+            for name, data in {**old, **rc}.items():
+                if name != key:
+                    self.assertEqual((output / name).read_bytes(), data)
+
+    def test_collision_does_not_change_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            original = github_export.github_files([bundle()])
+            github_export.write_files(output, original)
+            conflicting = github_export.github_files([bundle(text=b'conflict')])
+            with self.assertRaisesRegex(RuntimeError, 'snapshot collision'):
+                github_export.write_files(output, conflicting)
+            for name, data in original.items():
+                self.assertEqual((output / name).read_bytes(), data)
+
+
+class ReleaseIdentityTest(unittest.TestCase):
+    def identity(self, tag='v2.0.0', channel=None, commit='1' * 40, dirty='', **changes):
+        release = {'tag_name': tag, 'draft': False, 'published_at': '2026-10-23T12:00:00Z',
+                   'prerelease': tag.startswith('rc-')}
+        release.update(changes)
+        with patch.object(publisher.subprocess, 'check_output',
+                          side_effect=[commit, dirty, json.dumps(release)]) as command:
+            result = publisher.release_identity(tag, 'uxjulia/CrossInk', '1' * 40, channel)
+        return result, command
+
+    def test_stable_uses_release_version_and_channel(self):
+        result, command = self.identity(tag='v2.1.0')
+        self.assertEqual(result, ('2.1.0', 'stable'))
+        self.assertEqual(command.call_args_list[0].args[0][-1], 'refs/tags/v2.1.0^{commit}')
+
+    def test_rc_uses_exact_packaging_version_and_channel(self):
+        tag = 'rc-next-123abcd'
+        result, _ = self.identity(tag=tag)
+        self.assertEqual(result, (tag, 'rc'))
+
+    def test_drafts_unpublished_and_mismatched_releases_are_rejected(self):
+        for changes in ({'draft': True}, {'published_at': None}, {'prerelease': True},
+                        {'tag_name': 'v9.0.0'}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(RuntimeError, 'must be published'):
+                self.identity(**changes)
+        with self.assertRaisesRegex(RuntimeError, 'must be published'):
+            self.identity(tag='rc-next-123abcd', prerelease=False)
+
+    def test_wrong_source_dirty_source_and_channel_are_rejected(self):
+        for options, error in (({'commit': '2' * 40}, 'does not match release tag'),
+                               ({'dirty': ' M english.yaml'}, 'requires clean'),
+                               ({'channel': 'rc'}, 'does not match requested channel')):
+            with self.subTest(options=options), self.assertRaisesRegex(RuntimeError, error):
+                self.identity(**options)
+
+    def test_unsupported_tags_and_repository_are_rejected_before_commands(self):
+        with patch.object(publisher.subprocess, 'check_output') as command:
+            for tag in ('main', 'rc-next', 'v2.0.0/../../main', '--help'):
+                with self.subTest(tag=tag), self.assertRaisesRegex(RuntimeError, 'unsupported'):
+                    publisher.release_identity(tag, 'uxjulia/CrossInk', '1' * 40)
+            with self.assertRaisesRegex(RuntimeError, 'owner/repository'):
+                publisher.release_identity('v2.0.0', None, '1' * 40)
+            command.assert_not_called()
+
+
+class ReleaseBundleTest(unittest.TestCase):
+    def test_published_translations_match_release_editor_artifacts(self):
+        from generate_language_template import generate
+        version, commit = 'rc-next-123abcd', '1' * 40
+        with patch.object(publisher, 'args', SimpleNamespace(channel='rc', release_tag=version), create=True):
+            catalog, files = publisher.build_languages(version, commit)
+        expected = generate(version, commit, 'release-build')
+        prefix = f"snapshots/{catalog['revision']}/"
+        for name, data in expected.items():
+            self.assertEqual(files[prefix + 'editor/' + name], data)
+        for entry in catalog['entries']:
+            filename = 'translations/' + entry['sha256'] + '.yaml'
+            self.assertEqual(files[prefix + 'translation/' + entry['sha256'] + '.yaml'], expected[filename])
+        self.assertEqual(json.loads(files[prefix + 'snapshot.json'])['status'], 'published-release')
+        publisher.validate_companions(catalog, files)
+
+    def test_hyphenation_payloads_match_release_zip_and_ignore_release_label(self):
+        from package_hyphenation import artifacts
+        expected = artifacts(ROOT)
+        with patch.object(publisher, 'args', SimpleNamespace(channel='rc'), create=True):
+            rc, rc_files = publisher.build_hyphenation()
+        with patch.object(publisher, 'args', SimpleNamespace(channel='stable'), create=True):
+            stable, stable_files = publisher.build_hyphenation()
+        self.assertEqual(rc['revision'], stable['revision'])
+        self.assertEqual(rc_files, stable_files)
+        for entry in rc['entries']:
+            key = f"snapshots/{rc['revision']}/hyphenation/{entry['sha256']}.cphyph"
+            self.assertEqual(rc_files[key], expected[f".crosspoint/hyphenation/hyph-{entry['code']}.cphyph"])
+        publisher.validate_companions(rc, rc_files)
 
 
 if __name__ == '__main__':
