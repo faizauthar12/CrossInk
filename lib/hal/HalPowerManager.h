@@ -30,9 +30,8 @@ class HalPowerManager {
                                           // path only — I2C/X3 path stores 0-100 directly)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
 
-  enum LockMode { None, NormalSpeed };
-  LockMode currentLockMode = None;
-  SemaphoreHandle_t modeMutex = nullptr;  // Protect access to currentLockMode
+  uint32_t lockCount = 0;                 // Overlapping jobs keep full speed until the last lock ends.
+  SemaphoreHandle_t modeMutex = nullptr;  // Protect access to lockCount and CPU mode
 
  public:
 #if defined(BOARD_HAS_PSRAM)
@@ -40,8 +39,8 @@ class HalPowerManager {
 #else
   static constexpr int LOW_POWER_FREQ = 10;  // MHz
 #endif
-  static constexpr unsigned long IDLE_POWER_SAVING_MS = 3000;  // ms
-  static constexpr unsigned long BATTERY_POLL_MS = 1500;       // ms
+  static constexpr unsigned long IDLE_POWER_SAVING_MS = 1000;  // ms
+  static constexpr unsigned long BATTERY_POLL_MS = 30000;      // ms
 
   void begin();
 
@@ -53,7 +52,7 @@ class HalPowerManager {
   void setPowerSaving(bool enabled);
 
   // Setup wake up GPIO and enter deep sleep
-  // Should be called inside main loop() to handle the currentLockMode
+  // Should be called inside main loop() to handle the lockCount
   void startDeepSleep(HalGPIO& gpio) const;
 
   // Get battery percentage (range 0-100)
@@ -81,10 +80,9 @@ class HalPowerManager {
 
   // RAII helper class to manage power saving locks
   // Usage: create an instance of Lock in a scope to disable power saving, for example when running a task that needs
-  // full performance. When the Lock instance is destroyed (goes out of scope), power saving will be re-enabled.
+  // full performance. Power saving is allowed again after the last Lock instance is destroyed.
   class Lock {
     friend class HalPowerManager;
-    bool valid = false;
 
    public:
     explicit Lock();

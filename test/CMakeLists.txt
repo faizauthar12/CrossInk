@@ -167,3 +167,5 @@ add_subdirectory(plugin_picker_layout)
 add_subdirectory(plugin_details)
 
 add_subdirectory(reader_session)
+
+add_subdirectory(hal_power_manager)
