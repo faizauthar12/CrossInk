@@ -60,6 +60,7 @@
 #include "QuickActions.h"
 #include "ReaderFontLoading.h"
 #include "ReaderUtils.h"
+#include "ReadingPace.h"
 #include "ReadingSessionStats.h"
 #include "RecentBooksStore.h"
 #include "SdCardFont.h"
@@ -123,12 +124,6 @@ constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_FREE = 64U * 1024U;
 constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC = 40U * 1024U;
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_READING_PACE_SAMPLE_SECONDS = 2;
-constexpr uint16_t MIN_STORED_TIME_LEFT_PACE_SAMPLE_COUNT = 3;
-constexpr uint16_t MIN_SESSION_TIME_LEFT_PACE_SAMPLE_COUNT = 10;
-constexpr uint16_t MIN_STORED_PACE_SLOWER_RECOVERY_SESSION_SAMPLES = 10;
-constexpr uint8_t STORED_PACE_SLOWER_RECOVERY_PERCENT = 110;
-constexpr uint16_t MIN_STORED_PACE_FASTER_RECOVERY_SESSION_SAMPLES = 15;
-constexpr uint8_t STORED_PACE_FASTER_RECOVERY_PERCENT = 90;
 constexpr uint8_t BOOK_PROGRESS_ESTIMATE_FLOOR_PERCENT = 90;
 constexpr uint16_t FOOTNOTE_PREVIEW_MAX_PAGES = 3;
 #if CROSSINK_APP_CAP_TOUCH
@@ -194,10 +189,6 @@ uint32_t pagesCentipages(const float pages) {
     return UINT32_MAX;
   }
   return static_cast<uint32_t>(pages * 100.0f + 0.5f);
-}
-
-bool hasEnoughPaceSamplesForTimeLeft(const BookReadingStats& stats) {
-  return stats.avgSecondsPerForwardPage > 0 && stats.paceSampleCount >= MIN_STORED_TIME_LEFT_PACE_SAMPLE_COUNT;
 }
 
 std::string confirmationHeading(const StrId actionLabelId) {
@@ -1599,7 +1590,6 @@ void EpubReaderActivity::finalizeReadingStatsOnExit() {
   syncStatsTrackingState();
   commitReadingStatsSession();
   if (!epub) return;
-  recoverStoredPaceFromSession("reader_exit");
   const uint32_t previousEstimate = stats.estimatedTimeLeftSeconds;
   refreshCachedTimeLeftEstimate();
   if (statsTrackingActive || paceDirty || pendingStatsCommit || stats.estimatedTimeLeftSeconds != previousEstimate) {
@@ -1771,74 +1761,20 @@ void EpubReaderActivity::recordForwardPagePaceSample(uint32_t seconds, const cha
   }
 
   stats.recordForwardPageRead(seconds);
+  const uint32_t paceMillis = ReadingPace::estimateMillis(sessionStartPaceMillis, sessionStartPaceSampleCount,
+                                                          sessionPaceSampleSeconds, sessionPaceSampleCount);
+  // Persist the same gradual estimate the status bar uses, including short sessions.
+  if (paceMillis > 0) stats.setAverageForwardPageMillis(paceMillis);
   paceDirty = true;
-  recoverStoredPaceFromSession("pace_sample");
 }
 
-bool EpubReaderActivity::getSessionAveragePaceSeconds(uint16_t& avgSeconds) const {
-  avgSeconds = 0;
-  if (sessionPaceSampleCount < MIN_SESSION_TIME_LEFT_PACE_SAMPLE_COUNT || sessionPaceSampleSeconds == 0) {
-    return false;
-  }
-  const uint32_t roundedAvg =
-      (sessionPaceSampleSeconds + static_cast<uint32_t>(sessionPaceSampleCount / 2)) / sessionPaceSampleCount;
-  avgSeconds = static_cast<uint16_t>(std::min<uint32_t>(roundedAvg, UINT16_MAX));
-  return avgSeconds > 0;
-}
-
-void EpubReaderActivity::recoverStoredPaceFromSession(const char* reason) {
-  if (stats.avgSecondsPerForwardPage == 0) {
-    return;
-  }
-
-  uint16_t sessionAvg = 0;
-  if (!getSessionAveragePaceSeconds(sessionAvg)) {
-    return;
-  }
-
-  const uint32_t slowerRecoveryThreshold =
-      (static_cast<uint32_t>(stats.avgSecondsPerForwardPage) * STORED_PACE_SLOWER_RECOVERY_PERCENT + 99U) / 100U;
-  if (sessionPaceSampleCount >= MIN_STORED_PACE_SLOWER_RECOVERY_SESSION_SAMPLES &&
-      sessionAvg >= slowerRecoveryThreshold) {
-    LOG_DBG("ERS",
-            "Time-left stored pace recovered: reason=%s direction=slower avg=%u->%u samples=%u sessionSamples=%u "
-            "threshold=%lu",
-            reason ? reason : "unknown", stats.avgSecondsPerForwardPage, sessionAvg, stats.paceSampleCount,
-            sessionPaceSampleCount, static_cast<unsigned long>(slowerRecoveryThreshold));
-    stats.avgSecondsPerForwardPage = sessionAvg;
-    return;
-  }
-
-  const uint32_t fasterRecoveryThreshold =
-      (static_cast<uint32_t>(stats.avgSecondsPerForwardPage) * STORED_PACE_FASTER_RECOVERY_PERCENT) / 100U;
-  if (sessionPaceSampleCount >= MIN_STORED_PACE_FASTER_RECOVERY_SESSION_SAMPLES &&
-      sessionAvg <= fasterRecoveryThreshold) {
-    LOG_DBG("ERS",
-            "Time-left stored pace recovered: reason=%s direction=faster avg=%u->%u samples=%u sessionSamples=%u "
-            "threshold=%lu",
-            reason ? reason : "unknown", stats.avgSecondsPerForwardPage, sessionAvg, stats.paceSampleCount,
-            sessionPaceSampleCount, static_cast<unsigned long>(fasterRecoveryThreshold));
-    stats.avgSecondsPerForwardPage = sessionAvg;
-  }
-}
-
-bool EpubReaderActivity::getTimeLeftPaceSeconds(uint16_t& avgSeconds, const char*& source,
-                                                uint16_t& sampleCount) const {
-  if (getSessionAveragePaceSeconds(avgSeconds)) {
-    source = "session_pace";
-    sampleCount = sessionPaceSampleCount;
-    return true;
-  }
-  if (hasEnoughPaceSamplesForTimeLeft(stats)) {
-    avgSeconds = stats.avgSecondsPerForwardPage;
-    source = "stored_pace";
-    sampleCount = stats.paceSampleCount;
-    return true;
-  }
-  avgSeconds = 0;
-  source = "none";
-  sampleCount = 0;
-  return false;
+bool EpubReaderActivity::getTimeLeftPaceSeconds(float& avgSeconds, const char*& source, uint16_t& sampleCount) const {
+  const uint32_t millis = ReadingPace::estimateMillis(sessionStartPaceMillis, sessionStartPaceSampleCount,
+                                                      sessionPaceSampleSeconds, sessionPaceSampleCount);
+  avgSeconds = static_cast<float>(millis) / 1000.0f;
+  sampleCount = sessionPaceSampleCount > 0 ? sessionPaceSampleCount : sessionStartPaceSampleCount;
+  source = millis == 0 ? "none" : sessionPaceSampleCount == 0 ? "stored_pace" : "blended_session_pace";
+  return millis > 0;
 }
 
 bool EpubReaderActivity::estimateRemainingTimeLeftPages(const bool bookEstimate, float& remainingPages) const {
@@ -1922,7 +1858,7 @@ bool EpubReaderActivity::estimateProgressTimeLeftSeconds(uint32_t& seconds) cons
 
 bool EpubReaderActivity::estimateTimeLeftSeconds(const bool bookEstimate, uint32_t& seconds) const {
   seconds = 0;
-  uint16_t paceSeconds = 0;
+  float paceSeconds = 0;
   const char* paceSource = "none";
   uint16_t paceSampleCount = 0;
   const bool hasPace = getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount);
@@ -1974,7 +1910,7 @@ bool EpubReaderActivity::formatTimeLeftLabel(char* buf, const size_t len, const 
     return true;
   }
 
-  uint16_t paceSeconds = 0;
+  float paceSeconds = 0;
   const char* paceSource = "none";
   uint16_t paceSampleCount = 0;
   if (!getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount)) {
@@ -2527,6 +2463,8 @@ void EpubReaderActivity::onEnter() {
   // Session count and reading time are committed on exit, or when tracking is
   // turned off, once thresholds are met.
   stats = BookReadingStats::load(epub->getCachePath());
+  sessionStartPaceMillis = stats.averageForwardPageMillis();
+  sessionStartPaceSampleCount = stats.paceSampleCount;
   bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
   statsTrackingActive = SETTINGS.shouldTrackReadingStats() && bookStatsEnabled;
   paceDirty = false;
@@ -5189,11 +5127,13 @@ void EpubReaderActivity::resetReadingPaceData() {
   const uint16_t oldAvg = stats.avgSecondsPerForwardPage;
   const uint16_t oldCount = stats.paceSampleCount;
 #endif
-  stats.avgSecondsPerForwardPage = 0;
+  stats.setAverageForwardPageMillis(0);
   stats.paceSampleCount = 0;
   stats.estimatedTimeLeftSeconds = 0;
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
+  sessionStartPaceMillis = 0;
+  sessionStartPaceSampleCount = 0;
   armReadingPaceWarmup("reading_pace_reset");
   if (epub) {
     epub->setupCacheDir();
@@ -5214,6 +5154,8 @@ void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   dailyReadingSession.reset();
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
+  sessionStartPaceMillis = 0;
+  sessionStartPaceSampleCount = 0;
   pendingReadFolderMove = false;
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   armReadingPaceWarmup("book_stats_delete");

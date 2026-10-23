@@ -191,6 +191,8 @@ class EpubReaderActivity final : public Activity {
   int idlePrewarmPage = -1;
   int idlePrewarmFontId = 0;
   bool paceSampleWarmupPending = true;
+  uint32_t sessionStartPaceMillis = 0;
+  uint16_t sessionStartPaceSampleCount = 0;
   uint32_t sessionPaceSampleSeconds = 0;
   uint16_t sessionPaceSampleCount = 0;
   uint32_t sessionReadingSeconds = 0;
@@ -433,9 +435,7 @@ class EpubReaderActivity final : public Activity {
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
   void recordCurrentPageReadingTime(const char* source = "unknown");
   void recordForwardPagePaceSample(uint32_t seconds, const char* source);
-  bool getSessionAveragePaceSeconds(uint16_t& avgSeconds) const;
-  void recoverStoredPaceFromSession(const char* reason = "unknown");
-  bool getTimeLeftPaceSeconds(uint16_t& avgSeconds, const char*& source, uint16_t& sampleCount) const;
+  bool getTimeLeftPaceSeconds(float& avgSeconds, const char*& source, uint16_t& sampleCount) const;
   bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
   bool estimateProgressTimeLeftSeconds(uint32_t& seconds) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;

@@ -737,6 +737,27 @@ book is renamed or moved outside CrossInk, the path hash changes, so the old
 clipping file may no longer be associated with the book until the file is moved
 back or the clipping store is migrated.
 
+## `stats_v6.bin`
+
+### Version 6
+
+Version 6 extends the 73-byte version 5 layout below to 75 bytes:
+
+- `[0]` version (`6`)
+- `[1-72]` unchanged version 5 fields
+- `[73-74]` `paceFractionMillis` (`uint16_t` LE, `0..999`)
+
+Reading pace is `avgSecondsPerForwardPage * 1000 + paceFractionMillis`
+milliseconds per forward page, capped at `65535000` ms. The fraction is zero
+at that cap. Fractional precision is preserved across updates and reopen.
+The whole-second field and sync payload retain their existing units.
+
+When absent, reads try `stats_v5.bin`, `stats_v4.bin`, then legacy `stats.bin`.
+Older payloads start with a zero fractional part. Saves write only version 6;
+older canonical snapshots remain available to older firmware. Reset removes
+all supported versioned snapshots and recovery files to avoid restoring old
+history. This stats-only change does not invalidate EPUB layout caches.
+
 ## `stats_v5.bin`
 
 ### Version 5

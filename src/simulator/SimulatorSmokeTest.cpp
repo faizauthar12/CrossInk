@@ -184,9 +184,51 @@ struct EpubReaderCompletionSmokeTest {
         page + 1 < reader.section->pageCount ? reader.section->getVisibleTextOffsetForPage(page + 1) : std::nullopt;
     return !statusAnchor || (start && *start <= *statusAnchor && (!next || *next > *statusAnchor));
   }
+  static bool readingPace(EpubReaderActivity& reader) {
+    for (const uint32_t sample : {20U, 40U}) {
+      reader.stats.setAverageForwardPageMillis(30000);
+      reader.stats.paceSampleCount = 100;
+      reader.sessionStartPaceMillis = 30000;
+      reader.sessionStartPaceSampleCount = 100;
+      reader.sessionPaceSampleSeconds = 0;
+      reader.sessionPaceSampleCount = 0;
+      reader.paceSampleWarmupPending = true;
+      reader.recordForwardPagePaceSample(sample, "pace_smoke_warmup");
+      reader.recordForwardPagePaceSample(1, "pace_smoke_fast");
+      reader.recordForwardPagePaceSample(SETTINGS.getReadingIdleTimeThresholdSeconds() + 1, "pace_smoke_idle");
+      if (reader.sessionPaceSampleCount != 0 || reader.stats.paceSampleCount != 100) return false;
+      for (uint16_t count = 1; count <= 12; ++count) {
+        reader.recordForwardPagePaceSample(sample, "pace_smoke");
+        const uint32_t expected = count < 10 ? 30000 + (static_cast<int>(sample) - 30) * 100 * count : sample * 1000;
+        float seconds = 0;
+        const char* source = nullptr;
+        uint16_t samples = 0;
+        if (!reader.getTimeLeftPaceSeconds(seconds, source, samples) || samples != count ||
+            static_cast<uint32_t>(seconds * 1000.0f + 0.5f) != expected ||
+            reader.stats.averageForwardPageMillis() != expected)
+          return false;
+      }
+    }
+    reader.resetReadingPaceData();
+    float seconds = 0;
+    const char* source = nullptr;
+    uint16_t samples = 0;
+    if (reader.stats.averageForwardPageMillis() != 0 || reader.getTimeLeftPaceSeconds(seconds, source, samples))
+      return false;
+    reader.recordForwardPagePaceSample(30, "pace_smoke_reset_warmup");
+    for (int i = 0; i < 3; ++i) reader.recordForwardPagePaceSample(30, "pace_smoke_reset_sample");
+    if (!reader.getTimeLeftPaceSeconds(seconds, source, samples) || seconds != 30.0f) return false;
+    reader.recordForwardPagePaceSample(28, "pace_smoke_fraction");
+    if (!reader.getTimeLeftPaceSeconds(seconds, source, samples) || seconds != 29.5f ||
+        reader.stats.averageForwardPageMillis() != 29500)
+      return false;
+    LOG_INF("SMOKE", "EPUB reading pace: filters, gradual handover, persisted pace and reset passed");
+    return true;
+  }
   static bool run(EpubReaderActivity& active) {
     auto reader = std::make_unique<EpubReaderActivity>(renderer, mappedInputManager, nullptr,
                                                        EpubReaderActivity::BookReaderSettingsData{}, 1);
+    if (!readingPace(*reader)) return false;
     reader->epub = active.epub;
     const int spineCount = reader->epub->getSpineItemsCount();
     if (spineCount <= 0) return false;
