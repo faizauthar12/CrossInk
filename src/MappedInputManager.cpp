@@ -1065,6 +1065,14 @@ bool MappedInputManager::wasAnyReleased() const {
   return gpio.wasAnyReleased();
 }
 
+uint32_t MappedInputManager::buttonSampleTime() const {
+#ifdef SIMULATOR
+  return millis();
+#else
+  return gpio.buttonSampleTime();
+#endif
+}
+
 unsigned long MappedInputManager::getHeldTime() const {
   unsigned long heldTime = gpio.getHeldTime();
 #if CROSSINK_APP_CAP_TOUCH

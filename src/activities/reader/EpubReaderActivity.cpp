@@ -3036,10 +3036,7 @@ void EpubReaderActivity::flushPendingSyncMark() {
 }
 
 void EpubReaderActivity::loop() {
-  {
-    RenderLock lock(*this);
-    pluginEvents.poll(getCurrentBookPath());
-  }
+  pluginEvents.pollWhenIdle(getCurrentBookPath());
   flushPendingSyncMark();
   if (keptOffer && !keptOfferShown && offerKeptPosition()) return;
   if (!hyphenationPackChecked && checkHyphenationPack()) return;
@@ -3444,7 +3441,7 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  const auto side = readerButtonShortcuts.update(mappedInput, millis());
+  const auto side = readerButtonShortcuts.update(mappedInput, mappedInput.buttonSampleTime());
   if (ReaderButtonShortcuts::shouldConsume(side, mappedInput)) {
     if (side.triggered) {
       if (side.longPress) {

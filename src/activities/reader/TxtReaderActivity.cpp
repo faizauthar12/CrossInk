@@ -206,10 +206,7 @@ bool TxtReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult&
 }
 
 void TxtReaderActivity::loop() {
-  {
-    RenderLock lock(*this);
-    pluginEvents.poll(getCurrentBookPath());
-  }
+  pluginEvents.pollWhenIdle(getCurrentBookPath());
   if (quickActionsPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 #if CROSSINK_APP_CAP_TOUCH
   if (handlePinchFontResize()) return;
@@ -292,7 +289,7 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  const auto side = readerButtonShortcuts.update(mappedInput, millis());
+  const auto side = readerButtonShortcuts.update(mappedInput, mappedInput.buttonSampleTime());
   if (ReaderButtonShortcuts::shouldConsume(side, mappedInput)) {
     if (side.triggered) {
       if (side.longPress) {
@@ -305,14 +302,7 @@ void TxtReaderActivity::loop() {
       }
       switch (side.action) {
         case CrossPointSettings::PAGE_TURN:
-          if (currentPage < totalPages - 1) {
-            {
-              RenderLock lock(*this);
-              currentPage++;
-              pluginEvents.noteTurn(true);
-            }
-            requestUpdate();
-          }
+          requestPageTurn(false, true);
           break;
         case CrossPointSettings::SIDE_INCREASE_FONT:
         case CrossPointSettings::SIDE_DECREASE_FONT:
@@ -352,32 +342,36 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  if (prevTriggered && currentPage > 0) {
-    {
-      RenderLock lock(*this);
-      currentPage--;
+  requestPageTurn(prevTriggered, nextTriggered);
+}
+
+void TxtReaderActivity::requestPageTurn(const bool previous, const bool next) {
+  {
+    // Indexing publishes the page count on the render task. Retain this turn
+    // until that work finishes, then check bounds while holding its lock.
+    RenderLock lock(*this);
+    if (previous && currentPage > 0) {
+      --currentPage;
       pluginEvents.noteTurn(false);
-    }
-    requestUpdate();
-  } else if (nextTriggered) {
-    if (currentPage < totalPages - 1) {
-      {
-        RenderLock lock(*this);
-        currentPage++;
-        pluginEvents.noteTurn(true);
-      }
-      requestUpdate();
+    } else if (next && currentPage < totalPages - 1) {
+      ++currentPage;
+      pluginEvents.noteTurn(true);
+    } else {
+      return;
     }
   }
+  requestUpdate();
 }
 
 bool TxtReaderActivity::changeReaderFontSize(const bool larger, const FontSizeStepMode mode) {
+  RenderLock lock(*this);
   if (!sdFontSystem.changeReaderFontSize(larger, mode)) return false;
   rebuildTextLayout();
   return true;
 }
 
 void TxtReaderActivity::cycleReaderFont() {
+  RenderLock lock(*this);
   const CrossPointSettings::FONT_SIZE effectiveSize = SETTINGS.getEffectiveReaderFontSize();
   SETTINGS.fontFamily = (SETTINGS.fontFamily + 1) % CrossPointSettings::FONT_FAMILY_COUNT;
   SETTINGS.sdFontFamilyName[0] = '\0';
@@ -390,14 +384,11 @@ void TxtReaderActivity::rebuildTextLayout() {
     LOG_ERR("TXT", "Failed to save reader font setting");
   }
   sdFontSystem.ensureLoaded(renderer);
-  {
-    RenderLock lock(*this);
-    pageOffsets.clear();
-    currentPageLines.clear();
-    statusBarRelayoutOffset.reset();
-    statusBarRelayoutPage = -1;
-    initialized = false;
-  }
+  pageOffsets.clear();
+  currentPageLines.clear();
+  statusBarRelayoutOffset.reset();
+  statusBarRelayoutPage = -1;
+  initialized = false;
   requestUpdate();
 }
 
@@ -445,10 +436,10 @@ bool TxtReaderActivity::handleTwoFingerRotation(const bool clockwise) {
 }
 
 bool TxtReaderActivity::applyReaderOrientation(const uint8_t orientation) {
-  SETTINGS.orientation = orientation;
-  SETTINGS.saveToFile();
   {
     RenderLock lock(*this);
+    SETTINGS.orientation = orientation;
+    SETTINGS.saveToFile();
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
     pageOffsets.clear();
     currentPageLines.clear();
@@ -517,14 +508,7 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
     case CrossPointSettings::SHORT_PWRBTN::ROTATE_FLIP:
       return applyReaderOrientation(ReaderUtils::flippedOrientation(SETTINGS.orientation));
     case CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE:
-      if (currentPage > 0) {
-        {
-          RenderLock lock(*this);
-          currentPage--;
-          pluginEvents.noteTurn(false);
-        }
-        requestUpdate();
-      }
+      requestPageTurn(true, false);
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FONT:
       cycleReaderFont();

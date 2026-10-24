@@ -65,6 +65,7 @@ class TxtReaderActivity final : public Activity {
 
   void renderPage();
   void renderStatusBar() const;
+  void requestPageTurn(bool previous, bool next);
 
   void initializeReader();
   bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset,
@@ -87,6 +88,7 @@ class TxtReaderActivity final : public Activity {
   bool executeLongPressBackAction();
   bool changeReaderFontSize(bool larger, FontSizeStepMode mode = FontSizeStepMode::Wrap);
   void cycleReaderFont();
+  // Font changes and layout invalidation share the caller's RenderLock.
   void rebuildTextLayout();
   void openReaderMenu();
   bool applyReaderOrientation(uint8_t orientation);

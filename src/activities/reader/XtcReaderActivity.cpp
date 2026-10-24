@@ -206,10 +206,7 @@ void XtcReaderActivity::openReaderMenu() {
 }
 
 void XtcReaderActivity::loop() {
-  {
-    RenderLock lock(*this);
-    pluginEvents.poll(getCurrentBookPath());
-  }
+  pluginEvents.pollWhenIdle(getCurrentBookPath());
   if (!xtc) {
     return;
   }
@@ -359,7 +356,7 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  const auto side = readerButtonShortcuts.update(mappedInput, millis());
+  const auto side = readerButtonShortcuts.update(mappedInput, mappedInput.buttonSampleTime());
   if (ReaderButtonShortcuts::shouldConsume(side, mappedInput)) {
     if (side.triggered) {
       if (side.longPress) {

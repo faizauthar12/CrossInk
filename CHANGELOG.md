@@ -110,6 +110,9 @@
 - Draw damaged SD-font glyphs as blanks and show a one-time warning to reinstall the font (CrossPoint #4091).
 - Avoid large contiguous allocations for EPUB chapter anchors without changing background pagination (anchor-storage portion of CrossPoint #4040).
 - Keep the last word before a nested EPUB quotation or heading in its original paragraph; existing book layouts rebuild automatically (adapted from yassine-cc, #886).
+- Respond promptly to reader controls while keeping idle power savings, and keep reader plugin bookkeeping from holding up input during a page refresh.
+- Prevent a queued navigation click from also repeating after a screen refresh.
+- Keep quick physical button taps in order during screen refreshes and filter release bounce before it becomes another click.
 
 ### Changed
 

@@ -243,6 +243,7 @@ class MappedInputManager {
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
+  uint32_t buttonSampleTime() const;
   // True when reader-mode orientation handling swaps the logical front navigation buttons.
   bool isFrontNavButtonSwapActive() const;
   Label withBackArrow(const char* text) const;

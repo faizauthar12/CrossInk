@@ -167,5 +167,9 @@ add_subdirectory(plugin_picker_layout)
 add_subdirectory(plugin_details)
 
 add_subdirectory(reader_session)
+add_subdirectory(reader_plugin_events)
 
 add_subdirectory(hal_power_manager)
+add_subdirectory(input_wake)
+add_subdirectory(button_navigation)
+add_subdirectory(button_capture)

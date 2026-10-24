@@ -629,7 +629,7 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
         LOG_ERR("MAIN", "Quick Lock requested without an input trigger");
         return false;
       }
-      buttonShortcutController.toggleQuickLock(millis(), quickLockTrigger,
+      buttonShortcutController.toggleQuickLock(mappedInputManager.buttonSampleTime(), quickLockTrigger,
                                                quickLockTrigger == QuickLockTrigger::LongPower);
       notifyQuickLockChanged();
       return true;
@@ -912,7 +912,7 @@ bool wasX4ProHomeKeyLongPressed() {
 }
 
 bool unlockX4ProHomeQuickLock(const QuickLockTrigger trigger) {
-  if (!buttonShortcutController.tryUnlockWithTrigger(millis(), trigger)) {
+  if (!buttonShortcutController.tryUnlockWithTrigger(mappedInputManager.buttonSampleTime(), trigger)) {
     return false;
   }
   notifyQuickLockChanged();
@@ -1118,6 +1118,9 @@ void mirrorWakeShortPressToNvs() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout) {
+#ifndef SIMULATOR
+  gpio.stopButtonCapture();
+#endif
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
@@ -1692,6 +1695,9 @@ void setup() {
     gpio.update();
   }
 
+#ifndef SIMULATOR
+  gpio.startButtonCapture();
+#endif
   allowSleepAt = millis() + 2000;
 }
 
@@ -1811,8 +1817,8 @@ void loop() {
   const bool touchscreenEscapeHatch =
       !modalOwnsInput && gpio.hasTouch() && SETTINGS.disableReaderTouchscreen && activityManager.isReaderActivity();
   const auto sideButtonShortcutResult = buttonShortcutController.updateUpDown(
-      millis(), gpio.isPressed(HalGPIO::BTN_UP), gpio.isPressed(HalGPIO::BTN_DOWN), configuredSideButtonChordAction(),
-      touchscreenEscapeHatch, modalOwnsInput);
+      mappedInputManager.buttonSampleTime(), gpio.isPressed(HalGPIO::BTN_UP), gpio.isPressed(HalGPIO::BTN_DOWN),
+      configuredSideButtonChordAction(), touchscreenEscapeHatch, modalOwnsInput);
   if (dispatchButtonShortcut(sideButtonShortcutResult) || sideButtonShortcutResult.consumeInput) {
     lastActivityTime = millis();
     return;
@@ -1824,9 +1830,9 @@ void loop() {
                                  gpio.getPowerButtonHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
   const bool quickLockOnShortPower =
       shortPowerRelease && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::QUICK_LOCK;
-  const auto shortcutResult =
-      buttonShortcutController.update(millis(), powerPressed, chordButtonPressed, shortPowerRelease,
-                                      quickLockOnShortPower, configuredChordAction(), modalOwnsInput);
+  const auto shortcutResult = buttonShortcutController.update(
+      mappedInputManager.buttonSampleTime(), powerPressed, chordButtonPressed, shortPowerRelease, quickLockOnShortPower,
+      configuredChordAction(), modalOwnsInput);
   if (dispatchButtonShortcut(shortcutResult)) {
     lastActivityTime = millis();
     return;
@@ -1835,26 +1841,26 @@ void loop() {
   if (buttonShortcutController.isQuickLocked()) {
     const bool longPowerPressed =
         powerPressed && gpio.getPowerButtonHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
-    if (buttonShortcutController.tryUnlockLongPower(millis(), longPowerPressed)) {
+    if (buttonShortcutController.tryUnlockLongPower(mappedInputManager.buttonSampleTime(), longPowerPressed)) {
       notifyQuickLockChanged();
       lastActivityTime = millis();
       return;
     }
-    if (buttonShortcutController.tryUnlockSide(millis(), mappedInputManager.isPressed(MappedInputManager::Button::Up),
-                                               mappedInputManager.wasPressed(MappedInputManager::Button::Up),
-                                               mappedInputManager.wasReleased(MappedInputManager::Button::Up),
-                                               SETTINGS.sideButtonUpLong != CrossPointSettings::IGNORE,
-                                               mappedInputManager.isPressed(MappedInputManager::Button::Down),
-                                               mappedInputManager.wasPressed(MappedInputManager::Button::Down),
-                                               mappedInputManager.wasReleased(MappedInputManager::Button::Down),
-                                               SETTINGS.sideButtonDownLong != CrossPointSettings::IGNORE,
-                                               ReaderUtils::SKIP_HOLD_MS)) {
+    if (buttonShortcutController.tryUnlockSide(
+            mappedInputManager.buttonSampleTime(), mappedInputManager.isPressed(MappedInputManager::Button::Up),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Up),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Up),
+            SETTINGS.sideButtonUpLong != CrossPointSettings::IGNORE,
+            mappedInputManager.isPressed(MappedInputManager::Button::Down),
+            mappedInputManager.wasPressed(MappedInputManager::Button::Down),
+            mappedInputManager.wasReleased(MappedInputManager::Button::Down),
+            SETTINGS.sideButtonDownLong != CrossPointSettings::IGNORE, ReaderUtils::SKIP_HOLD_MS)) {
       notifyQuickLockChanged();
       lastActivityTime = millis();
       return;
     }
     if (buttonShortcutController.tryUnlockFront(
-            millis(), mappedInputManager.isPressed(MappedInputManager::Button::Left),
+            mappedInputManager.buttonSampleTime(), mappedInputManager.isPressed(MappedInputManager::Button::Left),
             mappedInputManager.wasPressed(MappedInputManager::Button::Left),
             mappedInputManager.wasReleased(MappedInputManager::Button::Left),
             mappedInputManager.isPressed(MappedInputManager::Button::Right),
@@ -1999,6 +2005,15 @@ void loop() {
   // Add delay at the end of the loop to prevent tight spinning
   // When an activity requests skip loop delay (e.g., webserver running), use yield() for faster response
   // Otherwise, use longer delay to save power
+  const auto waitForInput = [](const uint32_t timeoutMs) {
+#ifdef SIMULATOR
+    delay(timeoutMs);
+#else
+    // Wake before decoding/debouncing input, without raising the idle clock
+    // or running the whole main loop more often while the device is untouched.
+    if (gpio.waitForInput(timeoutMs)) powerManager.setPowerSaving(false);
+#endif
+  };
   const uint8_t inputPollDelayMs = activityManager.inputPollDelayMs();
   bool skipLoopDelay = false;
   {
@@ -2007,7 +2022,7 @@ void loop() {
     RenderLock lock(RenderLock::Mode::Try);
     if (!lock.ownsLock()) {
       // Continue polling at the activity's rate while its screen is drawn.
-      delay(inputPollDelayMs);
+      waitForInput(inputPollDelayMs);
       return;
     }
     skipLoopDelay = activityManager.skipLoopDelay();
@@ -2019,10 +2034,10 @@ void loop() {
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
-      delay(50);
+      waitForInput(50);
     } else {
       // Short delay to prevent tight loop while still being responsive
-      delay(inputPollDelayMs);
+      waitForInput(inputPollDelayMs);
     }
   }
 }

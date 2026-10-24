@@ -8,10 +8,17 @@
 #include <cctype>
 #include <cstdio>
 
+#include "../RenderLock.h"
 #include "util/PluginEvents.h"
 void PluginReaderEvents::rendered(int progressBasisPoints) {
   renderedPage = true;
   session.onRenderComplete(millis(), trustedtime::trustedNow(), progressBasisPoints);
+}
+void PluginReaderEvents::pollWhenIdle(const std::string& book) {
+  // opened belongs to the main task. Once emitted, avoid even a try-lock.
+  if (opened) return;
+  RenderLock lock(RenderLock::Mode::Try);
+  if (lock.ownsLock()) poll(book);
 }
 void PluginReaderEvents::poll(const std::string& book) {
   if (!renderedPage || opened || book.empty()) return;
