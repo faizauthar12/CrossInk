@@ -116,6 +116,7 @@
 - Credit EPUB and XTC reading to the actual local day and time, preserving streaks when a reading session crosses midnight.
 - Preserve reading stats before silent reader restarts, and keep the live session available when a restart save fails.
 - Show EPUB and XTC page turns before periodic reading-stat saves, reducing SD-card pauses on button and touch devices. Defer periodic checkpoints until page input and rendering have been quiet for one second.
+- Keep words below large decorative first letters intact when EPUB text returns to full width; existing book layouts rebuild automatically (adapted from Uri Tauber, CrossPoint #4173).
 
 ### Changed
 

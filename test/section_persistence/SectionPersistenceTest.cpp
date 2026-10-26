@@ -23,13 +23,17 @@ extern uint32_t testHyphenationIdentity;
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 99;
+constexpr uint8_t kFullVersion = 100;
+constexpr uint8_t kStablePageFullVersion = 99;
+constexpr uint8_t kStablePagePartialVersion = 0xD4;
+constexpr uint8_t kPreDropCapFullVersion = 98;
+constexpr uint8_t kPreDropCapPartialVersion = 0xD3;
 constexpr uint8_t kPreImageAlignmentFullVersion = 94;
 constexpr uint8_t kPreImageAlignmentPartialVersion = 0xCF;
 constexpr uint8_t kPreFieldsetFullVersion = 93;
 constexpr uint8_t kPreFieldsetPartialVersion = 0xCE;
 constexpr uint8_t kS3BitmapFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xD4;
+constexpr uint8_t kPartialVersion = 0xD5;
 constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
 constexpr uint8_t kC3BitmapFullVersion = 89;
 constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
@@ -185,7 +189,11 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {uint8_t{97},
+  for (const uint8_t staleVersion : {kStablePageFullVersion,
+                                     kStablePagePartialVersion,
+                                     kPreDropCapFullVersion,
+                                     kPreDropCapPartialVersion,
+                                     uint8_t{97},
                                      uint8_t{0xD2},
                                      uint8_t{96},
                                      uint8_t{0xD1},

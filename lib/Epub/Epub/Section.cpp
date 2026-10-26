@@ -49,11 +49,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v97: Keep hyphenated word boundaries closed during justification.
 // v98: Flush buffered words before nested block layout and font changes.
 // v99: Preserve normalized reference-text offsets for stable-page reading pace.
-constexpr uint8_t SECTION_FILE_VERSION = 99;
+// v100: Leave words below drop caps unsplit until full-width layout.
+constexpr uint8_t SECTION_FILE_VERSION = 100;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD4;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD5;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
