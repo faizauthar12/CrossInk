@@ -120,7 +120,7 @@ bool uploadPending(const Upload upload, void* context) {
     return false;
   }
   bool ok = true;
-  unsigned sent = 0;
+  // Drain the queue one record at a time; a backlog is not an upload failure.
   for (FsFile file = dir.openNextFile(); file; file = dir.openNextFile()) {
     char name[48]{};
     const bool regular = !file.isDirectory();
@@ -136,10 +136,6 @@ bool uploadPending(const Upload upload, void* context) {
     if (!Storage.exists(path) && !Storage.exists((std::string(path) + ".bak").c_str()) &&
         !Storage.exists((std::string(path) + ".tmp").c_str()))
       continue;
-    if (sent >= 20) {
-      ok = false;
-      break;
-    }
     Record record;
     bool loaded = false;
     {
@@ -176,7 +172,6 @@ bool uploadPending(const Upload upload, void* context) {
       ok = false;
       break;
     }
-    ++sent;  // Bound each network pass; retain any remaining entries.
   }
   ok = ok && !FsHelpers::directoryIterationFailed(dir);
   dir.close();

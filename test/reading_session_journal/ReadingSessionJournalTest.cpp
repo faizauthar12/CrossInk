@@ -1,6 +1,9 @@
 #include <HalStorage.h>
 #include <gtest/gtest.h>
 
+#include <cstdio>
+#include <set>
+
 #include "ReadingSessionJournal.h"
 using namespace ReadingSessionJournal;
 class Journal : public ::testing::Test {
@@ -13,6 +16,58 @@ static ReadingStatsDateTime dt(uint8_t hour = 12, uint8_t minute = 0, uint8_t se
 static bool collect(void* ptr, const Record& r) {
   static_cast<std::vector<Record>*>(ptr)->push_back(r);
   return true;
+}
+static Record savedRecord(unsigned index) {
+  Record record;
+  snprintf(record.id, sizeof(record.id), "%032x", index);
+  strcpy(record.document, "0123456789abcdef0123456789abcdef");
+  record.startedAt = 946684800ULL + index * 120;
+  record.endedAt = record.startedAt + 60;
+  record.seconds = 60;
+  return record;
+}
+TEST_F(Journal, DrainsTheEntireQueueInOneUpload) {
+  for (const unsigned count : {0u, 1u, 20u, 21u, 40u, 75u}) {
+    SCOPED_TRACE(count);
+    Storage.reset();
+    for (unsigned i = 0; i < count; ++i) ASSERT_TRUE(save(savedRecord(i)));
+    std::vector<Record> rows;
+    ASSERT_TRUE(uploadPending(collect, &rows));
+    ASSERT_EQ(rows.size(), count);
+    std::set<std::string> ids;
+    for (const auto& row : rows) EXPECT_TRUE(ids.insert(row.id).second);
+    for (unsigned i = 0; i < count; ++i) EXPECT_EQ(ids.count(savedRecord(i).id), 1u);
+    rows.clear();
+    EXPECT_TRUE(uploadPending(collect, &rows));
+    EXPECT_TRUE(rows.empty());
+  }
+}
+TEST_F(Journal, ResumesAfterAFailedUploadBeyondTheFormerLimit) {
+  for (unsigned i = 0; i < 45; ++i) ASSERT_TRUE(save(savedRecord(i)));
+  std::vector<Record> attempts;
+  ASSERT_FALSE(uploadPending(
+      [](void* ptr, const Record& record) {
+        auto& rows = *static_cast<std::vector<Record>*>(ptr);
+        rows.push_back(record);
+        return rows.size() <= 25;
+      },
+      &attempts));
+  ASSERT_EQ(attempts.size(), 26u);
+  std::vector<Record> retry;
+  ASSERT_TRUE(uploadPending(collect, &retry));
+  ASSERT_EQ(retry.size(), 20u);
+  std::set<std::string> ids;
+  for (size_t i = 0; i < 25; ++i) EXPECT_TRUE(ids.insert(attempts[i].id).second);
+  for (const auto& row : retry) EXPECT_TRUE(ids.insert(row.id).second);
+  EXPECT_EQ(ids.size(), 45u);
+  bool retriedFailure = false;
+  for (const auto& row : retry) {
+    if (strcmp(row.id, attempts.back().id) == 0) retriedFailure = true;
+  }
+  EXPECT_TRUE(retriedFailure);
+  retry.clear();
+  EXPECT_TRUE(uploadPending(collect, &retry));
+  EXPECT_TRUE(retry.empty());
 }
 TEST_F(Journal, PersistsACheckpointAndRemovesOnlyAfterAcknowledgment) {
   Session s;
