@@ -177,3 +177,6 @@ add_subdirectory(button_capture)
 
 add_test(NAME ReaderRestartStatsRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_reader_restart_stats.py)
+
+add_test(NAME ReaderStatsLatencyRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_reader_stats_latency.py)

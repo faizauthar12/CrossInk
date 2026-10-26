@@ -4,6 +4,15 @@
 #include "BookReadingStats.h"
 #include "GlobalReadingStats.h"
 
+// One accepted interval awaiting post-refresh storage. The reader's render lock
+// protects it; drain it before starting another interval or leaving the reader.
+// Fixed storage avoids allocating on each page turn.
+struct DeferredReadingStatsInterval {
+  ReadingStatsDateTime end;
+  uint32_t seconds = 0;
+  uint8_t utcOffset = 255;
+};
+
 // Bounded, allocation-free dated totals for the live session. Capture each
 // accepted page interval so pauses never become fictitious continuous reading.
 class ReadingSessionDates {

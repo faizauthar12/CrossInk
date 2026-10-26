@@ -1712,7 +1712,12 @@ bool EpubReaderActivity::currentPageReadingSecondsForStats(uint32_t& seconds, co
   return readingStatsIntervalSeconds(millis(), pageShownAtMs, SETTINGS.getReadingIdleTimeThresholdSeconds(), seconds);
 }
 
-void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
+void EpubReaderActivity::recordCurrentPageReadingTime(const char* source, const bool deferStorage) {
+  // Shortcuts can reach this without a lock; rendering/page turns already hold it.
+  std::optional<RenderLock> statsLock;
+  if (!RenderLock::heldByCurrentTask()) statsLock.emplace(*this);
+  // An unrendered turn must never overwrite the preceding accepted interval.
+  flushDeferredReadingStats();
   if (activeFootnotePreview) {
     pageShownAtMs = 0UL;
     return;
@@ -1723,19 +1728,31 @@ void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
     readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
-    if (epub && !readingSessionJournal.accept(epub->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
-      LOG_ERR("SessionStats", "Reading session checkpoint deferred");
-    }
-    if (epub && readingSessionJournal.revision() != statsCheckpointRevision &&
-        saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
-                                     epub->getCachePath())) {
-      statsCheckpointRevision = readingSessionJournal.revision();
-    }
-    if (!dailyReadingSession.accept(end, SETTINGS.clockUtcOffsetQ, seconds, sessionReadingSeconds)) {
-      LOG_ERR("DailyStats", "Cannot record accepted reading interval");
-    }
+    deferredReadingStats = {end, seconds, SETTINGS.clockUtcOffsetQ};
+    if (!deferStorage) flushDeferredReadingStats();
   }
   pageShownAtMs = 0UL;
+}
+
+void EpubReaderActivity::flushDeferredReadingStats() {
+  if (deferredReadingStats.seconds == 0) return;
+  const auto interval = deferredReadingStats;
+  deferredReadingStats = {};
+  const unsigned long startedAt = millis();
+  if (epub &&
+      !readingSessionJournal.accept(epub->getPath().c_str(), interval.end, interval.utcOffset, interval.seconds)) {
+    LOG_ERR("SessionStats", "Reading session checkpoint deferred");
+  }
+  if (epub && readingSessionJournal.revision() != statsCheckpointRevision &&
+      saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
+                                   epub->getCachePath())) {
+    statsCheckpointRevision = readingSessionJournal.revision();
+  }
+  if (!dailyReadingSession.accept(interval.end, interval.utcOffset, interval.seconds, sessionReadingSeconds)) {
+    LOG_ERR("DailyStats", "Cannot record accepted reading interval");
+  }
+  const unsigned long duration = millis() - startedAt;
+  if (duration >= 20) LOG_DBG("SessionStats", "Reading stats storage took %lu ms", duration);
 }
 
 void EpubReaderActivity::recordForwardPagePaceSample(uint32_t seconds, const char* source) {
@@ -6156,7 +6173,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
     const bool paceWarmup = paceSampleWarmupPending;
     uint32_t forwardReadSeconds = 0;
     const bool shouldRecordForwardRead = forwardPageReadElapsed(forwardReadSeconds, source);
-    recordCurrentPageReadingTime(source);
+    recordCurrentPageReadingTime(source, /*deferStorage=*/true);
     const bool exitingChapter =
         section && !section->isBuilding() && section->pageCount > 0 && section->currentPage >= section->pageCount - 1;
     // Advance within the section while there are (or may still be) more pages: either a built
@@ -6199,7 +6216,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       }
     }
   } else {
-    recordCurrentPageReadingTime(source);
+    recordCurrentPageReadingTime(source, /*deferStorage=*/true);
     pluginEvents.noteTurn(false);
     hasStableTextPosition = false;
     pendingStableReadSeconds = 0;
@@ -6219,6 +6236,13 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+  // Also drain on error/end screens and early returns, while the render lock
+  // still protects the session. Normal pages drain before starting their timer.
+  struct FlushStatsOnReturn {
+    EpubReaderActivity& reader;
+    ~FlushStatsOnReturn() { reader.flushDeferredReadingStats(); }
+  } flushStats{*this};
+
 #if CROSSINK_SCALABLE_FONTS
   if (epub)
     bookFontSystem.ensure(
@@ -8604,8 +8628,14 @@ ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {
 }
 
 void EpubReaderActivity::startDailyReadingInterval() {
+  // Shortcuts can reach this without a lock; rendering/page turns already hold it.
+  std::optional<RenderLock> statsLock;
+  if (!RenderLock::heldByCurrentTask()) statsLock.emplace(*this);
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
+  // Capture the new page clock before storage, but drain with the old start
+  // time before replacing it. Storage time is spent reading the visible page.
+  flushDeferredReadingStats();
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);

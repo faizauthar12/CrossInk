@@ -1492,6 +1492,10 @@ void RenderLock::unlock() {
  */
 bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; }
 
+bool RenderLock::heldByCurrentTask() {
+  return xSemaphoreGetMutexHolder(activityManager.renderingMutex) == xTaskGetCurrentTaskHandle();
+}
+
 void ActivityManager::preparePluginSleep() {
   RenderLock lock;
   for (auto& activity : stackActivities) activity->prepareForSleep();

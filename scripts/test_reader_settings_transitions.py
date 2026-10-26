@@ -29,6 +29,11 @@ FIXTURES = r'''
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <optional>
+struct RenderLock {
+  template<class T> explicit RenderLock(T&){}
+  static bool heldByCurrentTask(){return true;}
+};
 #include "activities/ActivityResult.h"
 
 struct ResultActivity {
@@ -45,6 +50,7 @@ struct Date {
   bool isValid() const { return value != 0; }
 };
 struct ReadingStatsDateTime { Date date{1}; };
+struct DeferredReadingStatsInterval { ReadingStatsDateTime end; uint32_t seconds=0; uint8_t utcOffset=255; };
 bool getCurrentLocalReadingStatsDateTime(ReadingStatsDateTime& result) {
   result.date.value = 2;
   return true;
@@ -52,6 +58,7 @@ bool getCurrentLocalReadingStatsDateTime(ReadingStatsDateTime& result) {
 bool getCurrentLocalDailyReadingDateTime(ReadingStatsDateTime& result) {
   return getCurrentLocalReadingStatsDateTime(result);
 }
+#define LOG_DBG(...) ((void)0)
 int dailyLogErrors = 0;
 void LOG_ERR(const char*, const char*) { ++dailyLogErrors; }
 // Observe the reader's daily-session calls; daily bucketing and persistence
@@ -173,7 +180,7 @@ struct Book {
   std::string getCachePath() const { return "/book"; }
   std::string getPath() const { return "/book.epub"; }
 } book;
-struct RenderLock { template <typename T> explicit RenderLock(T&) {} };
+
 struct Input {
   void suppressNextConfirmRelease() {}
   void suppressNextPowerRelease() {}
@@ -201,6 +208,7 @@ struct ReaderState {
   bool bookStatsEnabled = true, statsTrackingActive = true;
   bool pendingStatsCommit = false, paceDirty = false;
   ReadingSessionDates readingSessionDates;
+  DeferredReadingStatsInterval deferredReadingStats;
   ReadingSessionJournalStub readingSessionJournal;
   uint32_t statsCheckpointRevision = 0;
   unsigned long pageShownAtMs = 1000;
@@ -225,7 +233,8 @@ struct EpubReaderActivity : ReaderState {
   void onFrontlightPanelOpened();
   void onFrontlightPanelClosed();
   bool currentPageReadingSecondsForStats(uint32_t&, const char*) const;
-  void recordCurrentPageReadingTime(const char*);
+  void recordCurrentPageReadingTime(const char*, bool=false);
+  void flushDeferredReadingStats();
   void startDailyReadingInterval();
   void clearPendingManualPageTurns() {}
   void pauseReadingPaceTimer(const char*) {}
@@ -241,7 +250,8 @@ struct XtcReaderActivity : ReaderState {
   void applyBookStatsEditsFromDisk();
   void onFrontlightPanelClosed();
   bool currentPageReadingSecondsForStats(uint32_t&, const char*) const;
-  void recordCurrentPageReadingTime(const char*);
+  void recordCurrentPageReadingTime(const char*, bool=false);
+  void flushDeferredReadingStats();
   void startDailyReadingInterval();
   void resumeReadingStatsTimer(const char*);
   void pauseReadingStatsTimer(const char*);
@@ -569,6 +579,7 @@ def main():
         for name, result in (("syncStatsTrackingState", "void"),
                              ("currentPageReadingSecondsForStats", "bool"),
                              ("recordCurrentPageReadingTime", "void"),
+                             ("flushDeferredReadingStats", "void"),
                              ("startDailyReadingInterval", "void"),
                              ("finalizeReadingStatsOnExit", "void"),
                              ("onFrontlightPanelClosed", "void")):
