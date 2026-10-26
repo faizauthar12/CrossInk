@@ -82,7 +82,9 @@ class XtcReaderActivity final : public Activity {
   bool saveProgress(uint32_t page);
   bool queueProgressSave(uint32_t pageToRender);
   bool flushQueuedProgress();
-  void saveProgressBeforeRestart();
+  // Caller holds RenderLock, including the render-task low-memory path.
+  bool checkpointReadingStatsBeforeRestart();
+  bool saveProgressBeforeRestart();
   void loadProgress();
   void pauseReadingStatsTimer(const char* source = "unknown");
   void syncStatsTrackingState();

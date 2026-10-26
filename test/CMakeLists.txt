@@ -174,3 +174,6 @@ add_subdirectory(hal_power_manager)
 add_subdirectory(input_wake)
 add_subdirectory(button_navigation)
 add_subdirectory(button_capture)
+
+add_test(NAME ReaderRestartStatsRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_reader_restart_stats.py)

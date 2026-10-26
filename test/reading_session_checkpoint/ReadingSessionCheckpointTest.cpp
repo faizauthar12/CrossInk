@@ -5,13 +5,18 @@ namespace {
 BookReadingStats savedBook;
 GlobalReadingStats savedGlobal;
 bool saveFails = false;
+bool globalSaveFails = false;
 }  // namespace
 bool BookReadingStats::save(const std::string&) const {
   if (saveFails) return false;
   savedBook = *this;
   return true;
 }
-void GlobalReadingStats::save() const { savedGlobal = *this; }
+bool GlobalReadingStats::save() const {
+  if (globalSaveFails) return false;
+  savedGlobal = *this;
+  return true;
+}
 bool GlobalReadingStats::loadForUpload(GlobalReadingStats& out) {
   out = savedGlobal;
   return true;
@@ -210,4 +215,20 @@ TEST(SessionDates, LocalOffsetsAndRtcRoundingFollowTheCapturedInterval) {
       EXPECT_EQ(global.dayOfWeekSeconds[5], 5u);
     }
   }
+}
+
+TEST(SessionCheckpoint, FailedGlobalWritesDoNotPassWithMatchingOldTotals) {
+  BookReadingStats book;
+  GlobalReadingStats global;
+  ASSERT_TRUE(saveReadingSessionCheckpoint(book, global, 60, nullptr, "/cache"));
+  // Only pages change: the previous verification by seconds/sessions would pass.
+  global.totalPagesTurned = 7;
+  globalSaveFails = true;
+  EXPECT_FALSE(saveReadingSessionCheckpoint(book, global, 60, nullptr, "/cache"));
+  EXPECT_EQ(savedGlobal.totalPagesTurned, 0u);
+  EXPECT_EQ(global.totalReadingSeconds, 0u);
+  globalSaveFails = false;
+  ASSERT_TRUE(saveReadingSessionCheckpoint(book, global, 60, nullptr, "/cache"));
+  EXPECT_EQ(savedGlobal.totalPagesTurned, 7u);
+  EXPECT_EQ(savedGlobal.totalReadingSeconds, 60u);
 }

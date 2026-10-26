@@ -1605,8 +1605,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   if (statsTrackingActive && !enabled && epub) {
     commitReadingStatsSession();
     pendingStatsCommit = true;
-    if (stats.save(epub->getCachePath())) {
-      globalStats.save();
+    if (stats.save(epub->getCachePath()) && globalStats.save()) {
       pendingStatsCommit = false;
     }
   }
@@ -2876,7 +2875,11 @@ bool EpubReaderActivity::checkHyphenationPack() {
       requestUpdate();
       return;
     }
-    saveProgressBeforeRestart();
+    if (!saveProgressBeforeRestart()) {
+      resumeReadingPaceTimer("restart_save_failed");
+      requestUpdate();
+      return;
+    }
     if (auto manager = makeUniqueNoThrow<HyphenationManagerActivity>(renderer, mappedInput, wanted.c_str())) {
       startActivityForResult(std::move(manager), [this](const ActivityResult&) {
         RenderLock lock(*this);
@@ -4282,7 +4285,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
     case EpubReaderMenuAction::SYNC: {
       if (!KOREADER_STORE.hasCredentials()) {
         pauseReadingPaceTimer("koreader_settings");
-        saveProgressBeforeRestart();
+        if (!saveProgressBeforeRestart()) {
+          resumeReadingPaceTimer("restart_save_failed");
+          requestUpdate();
+          return;
+        }
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput),
                                [this, returnToReaderMenu](const ActivityResult&) {
                                  resumeReadingPaceTimer("koreader_settings_return");
@@ -5182,15 +5189,27 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       openFileTransfer();
       break;
     case CrossPointSettings::LONG_MENU_CALIBRE_WIRELESS:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingPaceTimer("restart_save_failed");
+        requestUpdate();
+        break;
+      }
       activityManager.goToCalibreWireless(epub ? epub->getPath() : "");
       break;
     case CrossPointSettings::LONG_MENU_JOIN_NETWORK:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingPaceTimer("restart_save_failed");
+        requestUpdate();
+        break;
+      }
       activityManager.goToJoinNetworkFileTransfer(epub ? epub->getPath() : "");
       break;
     case CrossPointSettings::LONG_MENU_CREATE_HOTSPOT:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingPaceTimer("restart_save_failed");
+        requestUpdate();
+        break;
+      }
       activityManager.goToHotspotFileTransfer(epub ? epub->getPath() : "");
       break;
     case CrossPointSettings::LONG_MENU_TOGGLE_TILT_PAGE_TURN:
@@ -6291,6 +6310,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
             currentSpineIndex);
     if (!saveProgress(currentSpineIndex, std::max(0, savedPage), std::max(0, pageCount))) {
       LOG_ERR("ERS", "Skipping silent restart because progress save failed");
+      return false;
+    }
+    if (!checkpointReadingStatsBeforeRestart()) {
+      LOG_ERR("ERS", "Skipping silent restart because reading stats could not be saved");
       return false;
     }
     armSilentRestartReaderPageBuild(epub->getPath(), static_cast<uint16_t>(currentSpineIndex),
@@ -8588,20 +8611,31 @@ void EpubReaderActivity::startDailyReadingInterval() {
   readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
-void EpubReaderActivity::saveProgressBeforeRestart() {
+bool EpubReaderActivity::checkpointReadingStatsBeforeRestart() {
+  recordCurrentPageReadingTime("restart_checkpoint");
+  bool saved = readingSessionJournal.checkpoint();
+  if (epub && (statsTrackingActive || pendingStatsCommit) &&
+      !saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
+                                    epub->getCachePath())) {
+    saved = false;
+  }
+  if (!saved) LOG_ERR("READER", "Cannot save reading stats before restart; retaining the live session");
+  return saved;
+}
+
+bool EpubReaderActivity::saveProgressBeforeRestart() {
   // Silent network-mode restarts skip onExit(); coordinate with the render task.
   RenderLock lock(*this);
-  recordCurrentPageReadingTime("restart_checkpoint");
-  readingSessionJournal.checkpoint();
-  if (epub && statsTrackingActive) {
-    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates, epub->getCachePath());
-  }
+  bool saved = checkpointReadingStatsBeforeRestart();
   if (!saveReadingProgress()) {
     LOG_ERR("READER", "Failed to save progress before restart");
+    saved = false;
   }
   if (epub && !saveLinkStack()) {
     LOG_ERR("READER", "Failed to save link return stack before restart");
+    saved = false;
   }
   // The restart skips loop() and onExit(), so queue the book for sync now.
   flushPendingSyncMark();
+  return saved;
 }

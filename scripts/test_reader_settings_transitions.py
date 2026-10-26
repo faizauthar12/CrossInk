@@ -229,7 +229,7 @@ struct EpubReaderActivity : ReaderState {
   void startDailyReadingInterval();
   void clearPendingManualPageTurns() {}
   void pauseReadingPaceTimer(const char*) {}
-  void saveProgressBeforeRestart() {}
+  bool saveProgressBeforeRestart() { return true; }
   void recoverStoredPaceFromSession(const char*) {}
   void refreshCachedTimeLeftEstimate() {}
   void resumeReadingPaceTimer(const char*) {}
@@ -432,11 +432,12 @@ template <typename Reader> void checkPanelReload(bool globalReset) {
 
 // A failed toggle-off save must not lose the committed session when the drawer
 // later closes.
-template <typename Reader> void checkFailedSaveSurvivesReload() {
+template <typename Reader> void checkFailedSaveSurvivesReload(bool globalFailure) {
   SETTINGS.enabled = true;
   resetDisk();
   Reader reader;
-  reader.stats.saveFails = true;
+  reader.stats.saveFails = !globalFailure;
+  reader.globalStats.saveFails = globalFailure;
   reader.bookStatsEnabled = false;
   reader.syncStatsTrackingState();
   assert(reader.pendingStatsCommit && reader.stats.totalReadingSeconds == 220);
@@ -444,6 +445,7 @@ template <typename Reader> void checkFailedSaveSurvivesReload() {
   reader.onFrontlightPanelClosed();
   assert(reader.stats.totalReadingSeconds == 220 && reader.globalStats.totalReadingSeconds == 220);
   reader.stats.saveFails = false;
+  reader.globalStats.saveFails = false;
   reader.finalizeReadingStatsOnExit();
   assert(Stats::diskBook.totalReadingSeconds == 220 && Stats::diskGlobal.totalReadingSeconds == 220);
 }
@@ -539,8 +541,10 @@ int main(int argc, char**) {
       checkPanelReload<EpubReaderActivity>(reset);
       checkPanelReload<XtcReaderActivity>(reset);
     }
-    checkFailedSaveSurvivesReload<EpubReaderActivity>();
-    checkFailedSaveSurvivesReload<XtcReaderActivity>();
+    for (bool globalFailure : {false, true}) {
+      checkFailedSaveSurvivesReload<EpubReaderActivity>(globalFailure);
+      checkFailedSaveSurvivesReload<XtcReaderActivity>(globalFailure);
+    }
     checkXtcStatsScreenReturn();
     checkXtcChapterFailureStats();
     checkEpubResetSnapshot();

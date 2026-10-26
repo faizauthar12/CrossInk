@@ -79,7 +79,7 @@ bool saveReadingSessionCheckpoint(const BookReadingStats& book, const GlobalRead
   preview->global = global;
   commitReadingSession(preview->book, preview->global, seconds, dates);
   if (!preview->book.save(cachePath)) return false;
-  preview->global.save();
+  if (!preview->global.save()) return false;
   GlobalReadingStats checked;
   if (!GlobalReadingStats::loadForUpload(checked) ||
       checked.totalReadingSeconds != preview->global.totalReadingSeconds ||

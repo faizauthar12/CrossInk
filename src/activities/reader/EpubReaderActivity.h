@@ -437,7 +437,9 @@ class EpubReaderActivity final : public Activity {
   // suppression exists to protect.
   bool saveProgress(int spineIndex, int currentPage, int pageCount, bool allowDuringFootnotePreview = false);
   bool queueProgressSave(int spineIndex, int currentPage, int pageCount, bool forceSave = false);
-  void saveProgressBeforeRestart();
+  // Caller holds RenderLock, including the render-task low-memory path.
+  bool checkpointReadingStatsBeforeRestart();
+  bool saveProgressBeforeRestart();
   bool saveReadingProgress();
   bool saveLinkStack() const;
   void loadLinkStack();

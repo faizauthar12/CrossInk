@@ -735,8 +735,7 @@ void XtcReaderActivity::commitReadingStats() {
     pendingSync.mark(xtc->getPath(), SyncPending::STATS_BIT);
     paceDirty = false;
     if (statsTrackingActive || pendingStatsCommit) {
-      globalStats.save();
-      pendingStatsCommit = false;
+      if (globalStats.save()) pendingStatsCommit = false;
     }
   }
 }
@@ -1077,15 +1076,27 @@ bool XtcReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       activityManager.goToFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CALIBRE_WIRELESS:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingStatsTimer("restart_save_failed");
+        requestUpdate();
+        return true;
+      }
       activityManager.goToCalibreWireless(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::JOIN_NETWORK:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingStatsTimer("restart_save_failed");
+        requestUpdate();
+        return true;
+      }
       activityManager.goToJoinNetworkFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CREATE_HOTSPOT:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingStatsTimer("restart_save_failed");
+        requestUpdate();
+        return true;
+      }
       activityManager.goToHotspotFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
@@ -1120,15 +1131,27 @@ bool XtcReaderActivity::executeLongPressBackAction() {
       activityManager.goToFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CALIBRE_WIRELESS:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingStatsTimer("restart_save_failed");
+        requestUpdate();
+        return true;
+      }
       activityManager.goToCalibreWireless(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_JOIN_NETWORK:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingStatsTimer("restart_save_failed");
+        requestUpdate();
+        return true;
+      }
       activityManager.goToJoinNetworkFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_HOTSPOT:
-      saveProgressBeforeRestart();
+      if (!saveProgressBeforeRestart()) {
+        resumeReadingStatsTimer("restart_save_failed");
+        requestUpdate();
+        return true;
+      }
       activityManager.goToHotspotFileTransfer(xtc ? xtc->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_BROWSER:
@@ -1586,15 +1609,25 @@ void XtcReaderActivity::startDailyReadingInterval() {
   readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
-void XtcReaderActivity::saveProgressBeforeRestart() {
+bool XtcReaderActivity::checkpointReadingStatsBeforeRestart() {
+  recordCurrentPageReadingTime("restart_checkpoint");
+  bool saved = readingSessionJournal.checkpoint();
+  if (xtc && (statsTrackingActive || pendingStatsCommit) &&
+      !saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
+                                    xtc->getCachePath())) {
+    saved = false;
+  }
+  if (!saved) LOG_ERR("READER", "Cannot save reading stats before restart; retaining the live session");
+  return saved;
+}
+
+bool XtcReaderActivity::saveProgressBeforeRestart() {
   // Silent network-mode restarts skip onExit(); coordinate with the render task.
   RenderLock lock(*this);
-  recordCurrentPageReadingTime("restart_checkpoint");
-  readingSessionJournal.checkpoint();
-  if (xtc && statsTrackingActive) {
-    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates, xtc->getCachePath());
-  }
+  bool saved = checkpointReadingStatsBeforeRestart();
   if (!(flushQueuedProgress())) {
     LOG_ERR("READER", "Failed to save progress before restart");
+    saved = false;
   }
+  return saved;
 }
