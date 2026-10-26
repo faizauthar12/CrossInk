@@ -509,6 +509,7 @@ void ActivityManager::renderTaskLoop() {
 #if defined(CROSSINK_LANGUAGE_BENCHMARK)
       language_benchmark::beginFrame(currentActivity->name.c_str());
 #endif
+      mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
       currentActivity->render(std::move(lock));
 #if defined(CROSSINK_LANGUAGE_BENCHMARK)
       language_benchmark::endFrame();
@@ -549,6 +550,10 @@ void ActivityManager::loop() {
 #endif
 
   if (currentActivity) {
+    if (mappedInput.isMenuMode() != currentActivity->usesMenuButtonOrientation()) {
+      RenderLock lock;
+      mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+    }
     mappedInput.setPowerAsConfirmInReaderMode(currentActivity->allowPowerAsConfirmInReaderMode());
 
     if (currentActivity->blocksGlobalInput()) {
@@ -645,6 +650,7 @@ void ActivityManager::loop() {
       } else {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
+        mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
         restoredActivityNeedsRender = true;
 
         // A file-transfer child may have released UI fonts. Restore them for
@@ -790,6 +796,10 @@ void ActivityManager::loop() {
     }
   }
 
+  if (currentActivity && mappedInput.isMenuMode() != currentActivity->usesMenuButtonOrientation()) {
+    RenderLock lock;
+    mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+  }
   if (requestedUpdate.exchange(false)) {
     // Using direct notification to signal the render task to update
     // Increment counter so multiple rapid calls won't be lost
@@ -912,8 +922,13 @@ void ActivityManager::exitActivity(const RenderLock& lock) {
 }
 
 void ActivityManager::enterCurrentActivity() {
+  {
+    RenderLock lock;
+    mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+  }
   currentActivity->onEnter();
   RenderLock lock;
+  mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
   enteringActivity = false;
   entryRenderRequested = false;
 }

@@ -387,6 +387,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.sync_server_captures:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.sync_server_captures).resolve())
             env["CROSSINK_SIMULATOR_SMOKE_SYNC_SERVER_CAPTURES"] = "1"
+        if args.menu_orientation:
+            env["CROSSINK_SIMULATOR_SMOKE_MENU_ORIENTATION"] = "1"
         if args.home_swipe:
             env["CROSSINK_SIMULATOR_SMOKE_HOME_SWIPE"] = "1"
         if args.home_themes:
@@ -427,6 +429,10 @@ def run_smoke(args: argparse.Namespace) -> int:
 
     if "Simulator smoke test passed" not in proc.stdout:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
+        return 2
+
+    if args.menu_orientation and "Simulator smoke test passed: menu orientation" not in proc.stdout:
+        print("Simulator did not complete the menu orientation checks", file=sys.stderr)
         return 2
 
     if args.release_notes and "Simulator smoke test passed: release notes" not in proc.stdout:
@@ -522,6 +528,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--release-notes", action="store_true", help="Check the one-time What's New screen (Download, Update, touch Later vs swipe, landscape hints) and the Settings Release Notes entry; captures via --about-captures")
     parser.add_argument("--about-captures", help="Directory for About framebuffer captures (PGM)")
     parser.add_argument("--sync-server-captures", help="Directory for Sync Server settings captures (PGM)")
+    parser.add_argument("--menu-orientation", action="store_true", help="Check physical menu labels/actions in all rotations independently of reader preferences; captures via --about-captures")
     parser.add_argument("--home-swipe", action="store_true", help="Check bottom-edge Home swipes, ordinary list swipes, and reader menu gestures on touch devices")
     parser.add_argument("--home-themes", action="store_true", help="Compare drawer theme changes with fresh Home renders (X4 Pro)")
     parser.add_argument("--no-build", dest="build", action="store_false", help="Run the existing simulator binary")

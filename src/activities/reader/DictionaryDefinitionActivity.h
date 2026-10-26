@@ -22,6 +22,7 @@ class DictionaryDefinitionActivity final : public Activity {
   friend struct ScreenCalibrationSmokeTest;
 #endif
  public:
+  bool usesMenuButtonOrientation() const override { return false; }
   using BackgroundRenderFn = void (*)(void* context);
 
   // showLookupButton=true:

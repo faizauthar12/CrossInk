@@ -48,6 +48,7 @@ struct ToastRect {
 class EpubReaderActivity final : public Activity {
   PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
+  friend struct ReaderMenuOrientationSmokeTest;
   friend struct EpubReaderCompletionSmokeTest;
   friend struct ScreenCalibrationSmokeTest;
   friend struct ClippingSelectionSmokeTest;
@@ -310,6 +311,7 @@ class EpubReaderActivity final : public Activity {
   bool pendingReadFolderMove = false;
   // The end screen owns these UI resources only while it is visible.
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
+  std::atomic<bool> endOfBookMenuActive{false};
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -602,6 +604,7 @@ class EpubReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
+  bool usesMenuButtonOrientation() const override;
   bool isEpubReaderActivity() const override { return true; }
   void onInputLockChanged(bool locked) override;
   void onUserInput() override;

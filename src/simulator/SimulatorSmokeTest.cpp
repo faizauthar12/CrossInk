@@ -10,6 +10,7 @@
 #include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
 #include <Logging.h>
+#include <SDL.h>
 #include <WiFi.h>
 
 #include <algorithm>
@@ -1462,6 +1463,13 @@ struct ScreenCalibrationSmokeTest {
 std::optional<uint32_t> ScreenCalibrationSmokeTest::epubOffset;
 int ScreenCalibrationSmokeTest::epubWidth = 0;
 
+struct ReaderMenuOrientationSmokeTest {
+  template <typename Reader>
+  static OptionPopup& popup(Reader& reader) {
+    return reader.quickActionsPopup;
+  }
+};
+
 namespace {
 
 enum class SmokeStep : uint8_t {
@@ -2126,6 +2134,219 @@ class SimulatorSmokeTest {
       for (int x = 0; x < width; ++x) std::fputc(renderer.isPixelBlack(x, y) ? 0 : 255, image);
     }
     std::fclose(image);
+  }
+
+  static void verifyMenuOrientation() {
+    RenderLock lock;
+    applyRequestedTheme();
+    using B = MappedInputManager::Button;
+    using C = CrossPointSettings;
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    const auto savedOrientation = renderer.getOrientation();
+    MappedInputManager input(gpio, renderer);
+    ButtonNavigator::setMappedInputManager(input);
+    const auto edge = [&](const uint8_t physical, const bool pressed) {
+      constexpr SDL_Scancode keys[] = {SDL_SCANCODE_ESCAPE, SDL_SCANCODE_RETURN, SDL_SCANCODE_LEFT,
+                                       SDL_SCANCODE_RIGHT,  SDL_SCANCODE_UP,     SDL_SCANCODE_DOWN};
+      gpio.beginFrame();
+      SDL_Event event{};
+      event.type = pressed ? SDL_KEYDOWN : SDL_KEYUP;
+      event.key.keysym.scancode = keys[physical];
+      if (SDL_PushEvent(&event) != 1) fail("Cannot inject physical menu button");
+      input.update();
+    };
+    size_t checks = 0;
+    // Include custom front slots and reader-specific assignments, not just the defaults.
+    for (const bool custom : {false, true}) {
+      SETTINGS.frontButtonBack = custom ? HalGPIO::BTN_CONFIRM : HalGPIO::BTN_BACK;
+      SETTINGS.frontButtonConfirm = custom ? HalGPIO::BTN_BACK : HalGPIO::BTN_CONFIRM;
+      SETTINGS.frontButtonLeft = HalGPIO::BTN_LEFT;
+      SETTINGS.frontButtonRight = HalGPIO::BTN_RIGHT;
+      SETTINGS.readerFrontButtonBack = HalGPIO::BTN_LEFT;
+      SETTINGS.readerFrontButtonConfirm = HalGPIO::BTN_RIGHT;
+      SETTINGS.readerFrontButtonLeft = HalGPIO::BTN_BACK;
+      SETTINGS.readerFrontButtonRight = HalGPIO::BTN_CONFIRM;
+      for (const bool reader : {false, true}) {
+        input.setReaderMode(reader);
+        for (const bool readerMapping : {false, true}) {
+          SETTINGS.readerFrontButtonsEnabled = readerMapping;
+          for (const uint8_t aware : {C::FRONT_ORIENTATION_AWARE_OFF, C::FRONT_ORIENTATION_AWARE_NAV_BUTTONS,
+                                      C::FRONT_ORIENTATION_AWARE_ALL_BUTTONS}) {
+            SETTINGS.frontButtonOrientationAware = aware;
+            for (const bool sideAware : {false, true}) {
+              SETTINGS.sideButtonOrientationAware = sideAware;
+              for (int rotation = 0; rotation < 4; ++rotation) {
+                SETTINGS.orientation = (rotation + 1) % 4;  // A menu may rotate independently of the book.
+                renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
+                input.setMenuMode(true);
+                // Reproduce a theme's temporary portrait hint pass while input is dispatched.
+                renderer.setOrientation(GfxRenderer::Portrait);
+                const bool swap =
+                    rotation == GfxRenderer::LandscapeCounterClockwise || rotation == GfxRenderer::PortraitInverted;
+                const bool useReader = reader && readerMapping;
+                const uint8_t back = useReader ? SETTINGS.readerFrontButtonBack : SETTINGS.frontButtonBack;
+                const uint8_t confirm = useReader ? SETTINGS.readerFrontButtonConfirm : SETTINGS.frontButtonConfirm;
+                const uint8_t left = useReader ? SETTINGS.readerFrontButtonLeft : SETTINGS.frontButtonLeft;
+                const uint8_t right = useReader ? SETTINGS.readerFrontButtonRight : SETTINGS.frontButtonRight;
+                const uint8_t expected[] = {back, confirm, swap ? right : left, swap ? left : right};
+                const auto labels = input.mapLabels("Back", "Confirm", "Up", "Down");
+                const char* physicalLabels[] = {labels.btn1, labels.btn2, labels.btn3, labels.btn4};
+                constexpr const char* names[] = {"Back", "Confirm", "Up", "Down"};
+                constexpr B logical[] = {B::Back, B::Confirm, B::Left, B::Right};
+                for (size_t i = 0; i < 4; ++i) {
+                  if (std::strcmp(physicalLabels[expected[i]], names[i]) != 0) fail("Menu label rotation mismatch");
+                  for (const bool pressed : {true, false}) {
+                    edge(expected[i], pressed);
+                    for (size_t j = 0; j < 4; ++j) {
+                      const bool actual = pressed ? input.wasPressed(logical[j]) : input.wasReleased(logical[j]);
+                      if (actual != (i == j)) fail("Menu action disagrees with its physical hint");
+                      ++checks;
+                    }
+                  }
+                }
+                const bool landscape =
+                    rotation == GfxRenderer::LandscapeClockwise || rotation == GfxRenderer::LandscapeCounterClockwise;
+                const bool horizontalSide = deviceUsesHorizontalSideButtonsForMenus(gpio);
+                if ((input.menuButton(B::Up) == B::Left) != (horizontalSide != landscape))
+                  fail("Directional menu axes did not rotate");
+                const bool sideSwap = rotation == GfxRenderer::PortraitInverted ||
+                                      rotation == (horizontalSide ? GfxRenderer::LandscapeCounterClockwise
+                                                                  : GfxRenderer::LandscapeClockwise);
+                for (const B direction : {B::Up, B::Down}) {
+                  const bool physicalUp = (direction == B::Up) != sideSwap;
+                  edge(physicalUp ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, true);
+                  if (!input.wasPressed(direction)) fail("Side menu press did not rotate");
+                  edge(physicalUp ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, false);
+                  if (!input.wasReleased(direction)) fail("Side menu release did not rotate");
+                  ++checks;
+                }
+                // Returning from a menu must restore the existing reader preference.
+                renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
+                input.setMenuMode(false);
+                SETTINGS.orientation = rotation;
+                const bool readerSideSwap = reader && sideAware && rotation != GfxRenderer::Portrait;
+                edge(readerSideSwap ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP, true);
+                if (!input.wasPressed(B::Up)) fail("Reader side-button preference changed");
+                edge(readerSideSwap ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP, false);
+                if (!input.wasReleased(B::Up)) fail("Reader side-button release changed");
+                checks += 2;
+                const auto pageLabels = input.mapLabels("Back", "Confirm", "Previous", "Next");
+                const char* pagePhysical[] = {pageLabels.btn1, pageLabels.btn2, pageLabels.btn3, pageLabels.btn4};
+                uint8_t pageLeft = left;
+                if (reader && aware == C::FRONT_ORIENTATION_AWARE_ALL_BUTTONS &&
+                    rotation == GfxRenderer::PortraitInverted) {
+                  constexpr uint8_t inverted[] = {3, 2, 1, 0};
+                  pageLeft = inverted[left];
+                } else if (reader && aware != C::FRONT_ORIENTATION_AWARE_OFF &&
+                           (landscape || rotation == GfxRenderer::PortraitInverted)) {
+                  pageLeft = right;
+                }
+                if (std::strcmp(pagePhysical[pageLeft], "Previous") != 0) fail("Reader page-turn preference changed");
+                ++checks;
+              }
+            }
+          }
+        }
+      }
+    }
+    // Quick Actions is embedded in all three readers rather than pushed as an activity.
+    SETTINGS.frontButtonOrientationAware = C::FRONT_ORIENTATION_AWARE_OFF;
+    SETTINGS.readerFrontButtonsEnabled = false;
+    SETTINGS.frontButtonBack = HalGPIO::BTN_BACK;
+    SETTINGS.frontButtonConfirm = HalGPIO::BTN_CONFIRM;
+    SETTINGS.frontButtonLeft = HalGPIO::BTN_LEFT;
+    SETTINGS.frontButtonRight = HalGPIO::BTN_RIGHT;
+    SETTINGS.orientation = C::LANDSCAPE_CCW;
+    renderer.setOrientation(GfxRenderer::LandscapeCounterClockwise);
+    SETTINGS.quickActionSlots[0] = C::FORCE_REFRESH;
+    SETTINGS.quickActionSlots[1] = C::LIBRARY;
+    input.setReaderMode(true);
+    const auto popupCheck = [&](auto& reader) {
+      auto& popup = ReaderMenuOrientationSmokeTest::popup(reader);
+      input.setMenuMode(reader.usesMenuButtonOrientation());
+      if (input.isMenuMode()) fail("Reader unexpectedly uses menu mapping before popup");
+      if (!reader.handleShortcutAction(C::QUICK_ACTIONS)) fail("Cannot open reader Quick Actions");
+      input.setMenuMode(reader.usesMenuButtonOrientation());
+      if (!input.isMenuMode()) fail("Embedded reader popup did not request menu mapping");
+      popup.processRender(renderer, input);
+      const int initial = popup.simulatorSelectedIndex();
+      edge(HalGPIO::BTN_LEFT, true);
+      popup.handleInput(input, [] {});
+      edge(HalGPIO::BTN_LEFT, false);
+      const bool nextReleased = input.wasReleased(B::Right);
+      popup.handleInput(input, [] {});
+      if (popup.simulatorSelectedIndex() != initial + 1)
+        fail("Popup lower button did not move down (%d -> %d, mapped release=%d)", initial,
+             popup.simulatorSelectedIndex(), nextReleased);
+      edge(HalGPIO::BTN_RIGHT, true);
+      popup.handleInput(input, [] {});
+      edge(HalGPIO::BTN_RIGHT, false);
+      popup.handleInput(input, [] {});
+      if (popup.simulatorSelectedIndex() != initial) fail("Popup upper button did not move up");
+      edge(HalGPIO::BTN_BACK, true);
+      popup.handleInput(input, [] {});
+      edge(HalGPIO::BTN_BACK, false);
+      popup.handleInput(input, [] {});
+      input.setMenuMode(reader.usesMenuButtonOrientation());
+      if (input.isMenuMode()) fail("Closing reader popup did not restore page mapping");
+      input.update();
+      checks += 4;
+    };
+    {
+      EpubReaderActivity reader(renderer, input, nullptr, {}, 0);
+      popupCheck(reader);
+    }
+    {
+      TxtReaderActivity reader(renderer, input, nullptr, 0);
+      popupCheck(reader);
+    }
+    {
+      XtcReaderActivity reader(renderer, input, nullptr, 0);
+      popupCheck(reader);
+    }
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    input.setReaderMode(false);
+    input.setMenuMode(true);
+    SETTINGS.frontButtonOrientationAware = C::FRONT_ORIENTATION_AWARE_OFF;
+    for (const auto mode : {C::MENU_NAV_CLASSIC, C::MENU_NAV_DIRECTIONAL}) {
+      SETTINGS.menuNavigation = mode;
+      for (const auto orientation : {GfxRenderer::LandscapeClockwise, GfxRenderer::LandscapeCounterClockwise}) {
+        renderer.setOrientation(orientation);
+        SETTINGS.orientation = orientation;
+        input.setMenuMode(true);
+        SettingsActivity menu(renderer, input);
+        menu.onEnter();
+        menu.render(std::move(lock));
+        const auto tapPhysical = [&](const uint8_t physical) {
+          edge(physical, true);
+          menu.loop();
+          edge(physical, false);
+          menu.loop();
+        };
+        const uint8_t nextPhysical = orientation == GfxRenderer::LandscapeCounterClockwise ? SETTINGS.frontButtonLeft
+                                                                                           : SETTINGS.frontButtonRight;
+        const uint8_t previousPhysical = orientation == GfxRenderer::LandscapeCounterClockwise
+                                             ? SETTINGS.frontButtonRight
+                                             : SETTINGS.frontButtonLeft;
+        tapPhysical(nextPhysical);
+        tapPhysical(nextPhysical);
+        if (menu.simulatorSelectedIndex() != 2) fail("Lower front button did not move down the menu");
+        tapPhysical(previousPhysical);
+        if (menu.simulatorSelectedIndex() != 1) fail("Upper front button did not move up the menu");
+        menu.render(std::move(lock));
+        captureStatusBarScreen((std::string("menu-") + (mode == C::MENU_NAV_CLASSIC ? "classic-" : "directional-") +
+                                (orientation == GfxRenderer::LandscapeClockwise ? "cw" : "ccw"))
+                                   .c_str());
+        menu.onExit();
+      }
+    }
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    renderer.setOrientation(savedOrientation);
+    ButtonNavigator::setMappedInputManager(mappedInputManager);
+    gpio.beginFrame();
+    LOG_INF("SMOKE", "Menu orientation labels/actions and reader preferences passed (%u checks)",
+            static_cast<unsigned>(checks));
   }
 
   static void verifyRotateShortcutPickers() {
@@ -6590,6 +6811,11 @@ class SimulatorSmokeTest {
           sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
           sdFontSystem.releaseRegistry();
           LOG_INF("SMOKE", "Simulator smoke test passed: font recovery");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_MENU_ORIENTATION")) {
+          verifyMenuOrientation();
+          LOG_INF("SMOKE", "Simulator smoke test passed: menu orientation");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_GESTURE_SHORTCUTS")) {

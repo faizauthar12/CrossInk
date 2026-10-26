@@ -18,6 +18,7 @@
 class TxtReaderActivity final : public Activity {
   PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
+  friend struct ReaderMenuOrientationSmokeTest;
   friend struct StatusBarFeatureSmokeTest;
   friend struct ScreenCalibrationSmokeTest;
 #endif
@@ -130,6 +131,7 @@ class TxtReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
+  bool usesMenuButtonOrientation() const override { return quickActionsPopup.isActive(); }
   bool usesFullScreenReaderVerticalSwipes() const override {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
     return true;

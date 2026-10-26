@@ -3046,8 +3046,9 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
     const bool menuNavigation = state.pane != ReaderDrawerPane::Percent &&
                                 state.pane != ReaderDrawerPane::AutoPageTurn &&
                                 !readerDrawerStepChangesSettings(state.pane);
-    const bool horizontalFront = SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_DIRECTIONAL &&
-                                 menuNavigation && !deviceUsesHorizontalSideButtonsForMenus(gpio);
+    const bool horizontalFront =
+        SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_DIRECTIONAL && menuNavigation &&
+        mappedInput.menuButton(MappedInputManager::Button::Up) == MappedInputManager::Button::Up;
     const char* previousLabel = horizontalFront ? tr(STR_DIR_LEFT) : tr(STR_DIR_UP);
     const char* nextLabel = horizontalFront ? tr(STR_DIR_RIGHT) : tr(STR_DIR_DOWN);
     if (state.pane == ReaderDrawerPane::Percent && percentKeypadActive) {

@@ -8,6 +8,7 @@
 #pragma once
 #include <Xtc.h>
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +30,7 @@
 class XtcReaderActivity final : public Activity {
   PluginReaderEvents pluginEvents;
 #ifdef SIMULATOR
+  friend struct ReaderMenuOrientationSmokeTest;
   friend struct StatusBarFeatureSmokeTest;
 #endif
   OptionPopup quickActionsPopup;
@@ -70,6 +72,7 @@ class XtcReaderActivity final : public Activity {
   SyncPending::SessionMarker pendingSync;
   // The end screen owns these UI resources only while it is visible.
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
+  std::atomic<bool> endOfBookMenuActive{false};
 
   enum class StatusBarOverlayPosition { Bottom, Top };
   struct StatusBarInfo {
@@ -149,6 +152,7 @@ class XtcReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
+  bool usesMenuButtonOrientation() const override;
   bool usesFullScreenReaderVerticalSwipes() const override {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
     return true;

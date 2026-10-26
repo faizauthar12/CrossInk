@@ -148,6 +148,7 @@
 - Reduce temporary memory used to prepare SD-font character widths, while keeping the cache up to date as text changes (adapted from CrossPoint #3948).
 - Move OPDS Browser into File Transfer, keeping room for Plugins and Settings on Home.
 - Save periodic reading-stat checkpoints every five minutes of accepted reading instead of every minute, while keeping session-end, sleep, and restart saves.
+- Match menu navigation buttons and their labels to screen rotation, independently of reader page-turn orientation settings.
 
 ## [v1.6.1] - 2026-10-03
 

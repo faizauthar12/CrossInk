@@ -19,6 +19,7 @@
 class OptionPopup {
  public:
 #ifdef SIMULATOR
+  int simulatorSelectedIndex() const { return selectedIndex; }
   Rect simulatorOptionRect(const int index) const { return layout.options.at(index); }
   bool simulatorOptionDisabled(const int index) const { return isDisabled(index); }
   const char* simulatorOptionLabel(const int index) const { return labels()[index]; }
