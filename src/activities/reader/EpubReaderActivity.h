@@ -13,6 +13,7 @@
 #include <string>
 
 #include "BookLoadingFeedback.h"
+#include "BookPageEstimate.h"
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "DailyReadingStats.h"
@@ -26,6 +27,7 @@
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
+#include "StableReadingPace.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
 #include "components/OptionPopup.h"
@@ -195,6 +197,18 @@ class EpubReaderActivity final : public Activity {
   uint16_t sessionStartPaceSampleCount = 0;
   uint32_t sessionPaceSampleSeconds = 0;
   uint16_t sessionPaceSampleCount = 0;
+  BookPageEstimate bookPageEstimate;
+  StableReadingPace stableReadingPace;
+  double stableTextPosition = 0;
+  double stableTextTotal = 0;
+  double pendingStableReadStart = 0;
+  uint32_t pendingStableReadSeconds = 0;
+  int pendingStableReadSpine = -1;
+  int pendingStableReadPage = -1;
+  bool hasStableTextPosition = false;
+  int stableTextSpine = -1;
+  int stableTextPage = -1;
+  void refreshStableTextProgress();
   uint32_t sessionReadingSeconds = 0;
   DailyReadingStats::Session dailyReadingSession;
   ReadingSessionJournal::Session readingSessionJournal;
@@ -436,8 +450,8 @@ class EpubReaderActivity final : public Activity {
   void recordCurrentPageReadingTime(const char* source = "unknown");
   void recordForwardPagePaceSample(uint32_t seconds, const char* source);
   bool getTimeLeftPaceSeconds(float& avgSeconds, const char*& source, uint16_t& sampleCount) const;
+  void refreshBookPageEstimate();
   bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
-  bool estimateProgressTimeLeftSeconds(uint32_t& seconds) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
   bool formatTimeLeftLabel(char* buf, size_t len, bool bookEstimate) const;
   void refreshCachedTimeLeftEstimate();

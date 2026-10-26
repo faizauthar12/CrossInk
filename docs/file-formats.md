@@ -791,6 +791,28 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 99
+
+Complete caches use `99`; suspended partial caches use `0xD4`. The header and
+existing lookup-table offsets are unchanged. After the visible-text offset
+table, a second `uint32_t[pageCount]` table stores normalized reference-text
+character offsets at each page start, followed by a `uint32_t` total normalized
+text length (zero while partial). The partial parse-watermark trailer follows
+these new fields. Both cache types rebuild automatically.
+
+All section builders record these coordinates, including sleep-page rebuilds
+that skip location metadata. The in-memory page index grows from 12 to 16 bytes
+per page, in fallible 1 KiB chunks; active text buffers also retain the parser's
+existing optional four-byte reference offset per buffered word.
+
+These coordinates let book time-left use the stable-page manifest's text units
+without relying on a provisional chapter page count. Character-based manifests
+work during incremental indexing. Older word-based manifests use the complete
+section's text length to map character positions to fractional word progress;
+they retain the screen-page fallback while that length is unknown. Stable pace
+is learned in memory from three accepted forward reads per session and remains
+valid through font/layout changes; the persisted screen-page pace is separate.
+
 ### Version 98
 
 Complete caches use `98`; suspended partial caches use `0xD3`. The payload is
