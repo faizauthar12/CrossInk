@@ -81,10 +81,8 @@ bool Session::flush() {
 
 bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, const uint8_t offset,
                      const uint32_t seconds) {
-  if (!seconds || !intervalStart.isValid() || !end.isValid() || offset > 104 || intervalOffset != offset) return true;
+  if (!isValidReadingStatsInterval(intervalStart, end, intervalOffset, offset, seconds)) return true;
   const uint64_t start = localSeconds(intervalStart);
-  const uint64_t finish = localSeconds(end);
-  if (finish < start || finish - start + 2 < seconds || finish - start > uint64_t(seconds) + 2) return true;
   const int16_t minutes = (int(offset) - 48) * 15;
   const uint64_t utcStart = start - int64_t(minutes) * 60;
   // Normalize subsecond RTC rounding to measured seconds, never add idle time.

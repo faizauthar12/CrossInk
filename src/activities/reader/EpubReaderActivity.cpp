@@ -1579,9 +1579,9 @@ void EpubReaderActivity::commitReadingStatsSession() {
   if (!statsTrackingActive) return;
   recordCurrentPageReadingTime("session_commit");
   readingSessionJournal.flush();
-  commitReadingSession(stats, globalStats, sessionReadingSeconds,
-                       hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+  commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   sessionReadingSeconds = 0;
+  readingSessionDates.reset();
   statsCheckpointRevision = 0;
 }
 
@@ -1614,7 +1614,7 @@ void EpubReaderActivity::syncStatsTrackingState() {
   sessionReadingSeconds = 0;
   statsCheckpointRevision = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   pageShownAtMs = section && !activeFootnotePreview ? millis() : 0UL;
   startDailyReadingInterval();
   armReadingPaceWarmup("stats_toggle");
@@ -1723,12 +1723,12 @@ void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
+    readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
     if (epub && !readingSessionJournal.accept(epub->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
       LOG_ERR("SessionStats", "Reading session checkpoint deferred");
     }
     if (epub && readingSessionJournal.revision() != statsCheckpointRevision &&
-        saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
-                                     hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
+        saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
                                      epub->getCachePath())) {
       statsCheckpointRevision = readingSessionJournal.revision();
     }
@@ -2447,7 +2447,7 @@ void EpubReaderActivity::onEnter() {
   sessionReadingSeconds = 0;
   statsCheckpointRevision = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
 
   globalStats = GlobalReadingStats::load();
 
@@ -5122,7 +5122,7 @@ void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   sessionStartPaceMillis = 0;
   sessionStartPaceSampleCount = 0;
   pendingReadFolderMove = false;
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   armReadingPaceWarmup("book_stats_delete");
   initializeCompletionPromptTrigger();
 }
@@ -8584,6 +8584,7 @@ void EpubReaderActivity::startDailyReadingInterval() {
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
@@ -8593,9 +8594,7 @@ void EpubReaderActivity::saveProgressBeforeRestart() {
   recordCurrentPageReadingTime("restart_checkpoint");
   readingSessionJournal.checkpoint();
   if (epub && statsTrackingActive) {
-    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
-                                 hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
-                                 epub->getCachePath());
+    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates, epub->getCachePath());
   }
   if (!saveReadingProgress()) {
     LOG_ERR("READER", "Failed to save progress before restart");

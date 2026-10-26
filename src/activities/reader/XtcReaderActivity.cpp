@@ -135,7 +135,7 @@ void XtcReaderActivity::onEnter() {
   sessionReadingSeconds = 0;
   statsCheckpointRevision = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
 
   // Save current XTC as last opened book and add to recent books
   APP_STATE.openEpubPath = xtc->getPath();
@@ -571,7 +571,7 @@ void XtcReaderActivity::syncStatsTrackingState() {
   sessionReadingSeconds = 0;
   statsCheckpointRevision = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
   pageShownAtMs = millis();
   startDailyReadingInterval();
 }
@@ -669,12 +669,12 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
     ReadingStatsDateTime end;
     getCurrentLocalDailyReadingDateTime(end);
+    readingSessionDates.accept(end, SETTINGS.clockUtcOffsetQ, seconds);
     if (xtc && !readingSessionJournal.accept(xtc->getPath().c_str(), end, SETTINGS.clockUtcOffsetQ, seconds)) {
       LOG_ERR("SessionStats", "Reading session checkpoint deferred");
     }
     if (xtc && readingSessionJournal.revision() != statsCheckpointRevision &&
-        saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
-                                     hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
+        saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
                                      xtc->getCachePath())) {
       statsCheckpointRevision = readingSessionJournal.revision();
     }
@@ -726,10 +726,10 @@ void XtcReaderActivity::commitReadingStats() {
   if (statsTrackingActive) {
     recordCurrentPageReadingTime("session_commit");
     readingSessionJournal.flush();
-    commitReadingSession(stats, globalStats, sessionReadingSeconds,
-                         hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr);
+    commitReadingSession(stats, globalStats, sessionReadingSeconds, &readingSessionDates);
   }
   sessionReadingSeconds = 0;
+  readingSessionDates.reset();
   statsCheckpointRevision = 0;
   if ((statsTrackingActive || paceDirty || pendingStatsCommit) && stats.save(xtc->getCachePath())) {
     pendingSync.mark(xtc->getPath(), SyncPending::STATS_BIT);
@@ -760,7 +760,7 @@ void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
   sessionReadingSeconds = 0;
   statsCheckpointRevision = 0;
   dailyReadingSession.reset();
-  hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
+  readingSessionDates.reset();
 }
 
 void XtcReaderActivity::setBookCompleted(const bool isCompleted) {
@@ -1582,6 +1582,7 @@ void XtcReaderActivity::startDailyReadingInterval() {
   ReadingStatsDateTime local;
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
 }
 
@@ -1591,9 +1592,7 @@ void XtcReaderActivity::saveProgressBeforeRestart() {
   recordCurrentPageReadingTime("restart_checkpoint");
   readingSessionJournal.checkpoint();
   if (xtc && statsTrackingActive) {
-    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds,
-                                 hasSessionStartLocalDateTime ? &sessionStartLocalDateTime : nullptr,
-                                 xtc->getCachePath());
+    saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates, xtc->getCachePath());
   }
   if (!(flushQueuedProgress())) {
     LOG_ERR("READER", "Failed to save progress before restart");

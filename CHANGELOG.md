@@ -113,6 +113,7 @@
 - Prevent a queued navigation click from also repeating after a screen refresh.
 - Keep quick physical button taps in order during screen refreshes and filter release bounce before it becomes another click.
 - Use stable-page text progress and measured time per stable page for book time-left when available, keeping incremental indexing and font changes from inflating the estimate. Other books retain a chapter-density estimate.
+- Credit EPUB and XTC reading to the actual local day and time, preserving streaks when a reading session crosses midnight.
 
 ### Changed
 

@@ -21,6 +21,7 @@
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
+#include "ReadingSessionStats.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "sync/SyncPending.h"
@@ -39,13 +40,12 @@ class XtcReaderActivity final : public Activity {
   unsigned long pageShownAtMs = 0UL;
   uint32_t sessionReadingSeconds = 0;
   DailyReadingStats::Session dailyReadingSession;
+  ReadingSessionDates readingSessionDates;
   ReadingSessionJournal::Session readingSessionJournal;
   uint32_t statsCheckpointRevision = 0;
   void startDailyReadingInterval();
   BookReadingStats stats;
   GlobalReadingStats globalStats;
-  ReadingStatsDateTime sessionStartLocalDateTime;
-  bool hasSessionStartLocalDateTime = false;
   bool bookStatsEnabled = true;
   bool statsTrackingActive = true;
   bool paceDirty = false;

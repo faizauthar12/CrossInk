@@ -119,6 +119,30 @@ Stats Stats::diskBook, Stats::diskGlobal;
 uint32_t Stats::resetRevision = 0;
 using BookReadingStats = Stats;
 using GlobalReadingStats = Stats;
+// Date bucketing is exercised by SessionDates; this fixture observes reader wiring.
+struct ReadingSessionDates {
+  uint32_t seconds = 111;
+  Date first{1};
+  void reset() { seconds = 0; first = {}; }
+  void start(const ReadingStatsDateTime&, uint8_t) {}
+  void accept(const ReadingStatsDateTime& end, uint8_t, uint32_t value) {
+    if (!first.isValid()) first = end.date;
+    seconds += value;
+  }
+  void apply(BookReadingStats& book, GlobalReadingStats& global) const {
+    book.spanSeconds += seconds;
+    global.spanSeconds += seconds;
+  }
+  const Date& firstReadingDate() const { return first; }
+};
+struct ReadingSessionJournalStub {
+  void start(const ReadingStatsDateTime&, uint8_t) {}
+  bool accept(const char*, const ReadingStatsDateTime&, uint8_t, uint32_t) { return true; }
+  bool flush() { return true; }
+  uint32_t revision() const { return 0; }
+};
+bool saveReadingSessionCheckpoint(const BookReadingStats&, const GlobalReadingStats&, uint32_t,
+                                  const ReadingSessionDates*, const std::string&) { return true; }
 struct Renderer {} renderer;
 struct FontSystem {
   uint32_t generation = 0;
@@ -147,6 +171,7 @@ struct Book {
   uint32_t getChapterCount() const { return chapters ? 3 : 0; }
   uint32_t getPageCount() const { return 6; }
   std::string getCachePath() const { return "/book"; }
+  std::string getPath() const { return "/book.epub"; }
 } book;
 struct RenderLock { template <typename T> explicit RenderLock(T&) {} };
 struct Input {
@@ -166,14 +191,18 @@ constexpr int STR_NO_CHAPTERS = 0;
 const char* tr(int) { return "No chapters"; }
 void drawToast(Renderer&, const char*) {}
 void delay(unsigned long duration) { now += duration; }
+struct SyncPending { static constexpr uint8_t STATS_BIT = 1; };
+struct PendingSync { void mark(const std::string&, uint8_t) {} };
 struct ReaderState {
+  PendingSync pendingSync;
   Book* epub = &book;
   Book* xtc = &book;
   bool section = true, activeFootnotePreview = false;
   bool bookStatsEnabled = true, statsTrackingActive = true;
   bool pendingStatsCommit = false, paceDirty = false;
-  bool hasSessionStartLocalDateTime = true;
-  ReadingStatsDateTime sessionStartLocalDateTime;
+  ReadingSessionDates readingSessionDates;
+  ReadingSessionJournalStub readingSessionJournal;
+  uint32_t statsCheckpointRevision = 0;
   unsigned long pageShownAtMs = 1000;
   uint32_t sessionReadingSeconds = 111;
   DailySession dailyReadingSession;

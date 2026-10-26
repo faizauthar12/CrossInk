@@ -27,6 +27,7 @@
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
+#include "ReadingSessionStats.h"
 #include "StableReadingPace.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
@@ -211,6 +212,7 @@ class EpubReaderActivity final : public Activity {
   void refreshStableTextProgress();
   uint32_t sessionReadingSeconds = 0;
   DailyReadingStats::Session dailyReadingSession;
+  ReadingSessionDates readingSessionDates;
   ReadingSessionJournal::Session readingSessionJournal;
   uint32_t statsCheckpointRevision = 0;
   void startDailyReadingInterval();
@@ -228,8 +230,6 @@ class EpubReaderActivity final : public Activity {
   bool statsTrackingActive = true;
   bool paceDirty = false;
   bool pendingStatsCommit = false;
-  ReadingStatsDateTime sessionStartLocalDateTime;
-  bool hasSessionStartLocalDateTime = false;
   void syncStatsTrackingState();
   void commitReadingStatsSession();
   void finalizeReadingStatsOnExit();
