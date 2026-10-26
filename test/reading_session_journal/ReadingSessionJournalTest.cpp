@@ -17,7 +17,7 @@ static bool collect(void* ptr, const Record& r) {
 TEST_F(Journal, PersistsACheckpointAndRemovesOnlyAfterAcknowledgment) {
   Session s;
   s.start(dt(), 48);
-  ASSERT_TRUE(s.accept("/book.epub", dt(12, 1), 48, 60));
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 5), 48, 300));
   std::vector<Record> first;
   ASSERT_FALSE(uploadPending(
       [](void* p, const Record& r) {
@@ -30,8 +30,8 @@ TEST_F(Journal, PersistsACheckpointAndRemovesOnlyAfterAcknowledgment) {
   ASSERT_TRUE(uploadPending(collect, &retry));
   ASSERT_EQ(retry.size(), 1u);
   EXPECT_STREQ(first[0].id, retry[0].id);
-  EXPECT_EQ(retry[0].seconds, 60u);
-  EXPECT_EQ(retry[0].endedAt - retry[0].startedAt, 60u);
+  EXPECT_EQ(retry[0].seconds, 300u);
+  EXPECT_EQ(retry[0].endedAt - retry[0].startedAt, 300u);
   std::vector<Record> empty;
   EXPECT_TRUE(uploadPending(collect, &empty));
   EXPECT_TRUE(empty.empty());
@@ -55,18 +55,18 @@ TEST_F(Journal, RetainsFailedWritesWithTheSameId) {
   Session s;
   s.start(dt(), 48);
   faults.failOpenWrite = true;
-  EXPECT_FALSE(s.accept("/book.epub", dt(12, 1), 48, 60));
+  EXPECT_FALSE(s.accept("/book.epub", dt(12, 5), 48, 300));
   faults.failOpenWrite = false;
   ASSERT_TRUE(s.flush());
   std::vector<Record> rows;
   ASSERT_TRUE(uploadPending(collect, &rows));
   ASSERT_EQ(rows.size(), 1u);
-  EXPECT_EQ(rows[0].seconds, 60u);
+  EXPECT_EQ(rows[0].seconds, 300u);
 }
 TEST_F(Journal, KeepsUncertainDataAfterCorruptionAndFailedDelete) {
   Session s;
   s.start(dt(), 48);
-  ASSERT_TRUE(s.accept("/book.epub", dt(12, 1), 48, 60));
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 5), 48, 300));
   std::vector<Record> rows;
   ASSERT_FALSE(uploadPending(
       [](void* p, const Record& r) {
@@ -118,17 +118,17 @@ TEST_F(Journal, FlushesShortAcceptedSessionsButKeepsBelowThresholdUnexported) {
 TEST_F(Journal, LaterCheckpointsRetainTheSessionIdAndCumulativeDuration) {
   Session s;
   s.start(dt(), 48);
-  ASSERT_TRUE(s.accept("/book.epub", dt(12, 1), 48, 60));
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 5), 48, 300));
   std::vector<Record> first;
   ASSERT_TRUE(uploadPending(collect, &first));
   ASSERT_EQ(first.size(), 1u);
-  s.start(dt(12, 1), 48);
-  ASSERT_TRUE(s.accept("/book.epub", dt(12, 2), 48, 60));
+  s.start(dt(12, 5), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 10), 48, 300));
   std::vector<Record> second;
   ASSERT_TRUE(uploadPending(collect, &second));
   ASSERT_EQ(second.size(), 1u);
   EXPECT_STREQ(first[0].id, second[0].id);
-  EXPECT_EQ(second[0].seconds, 120u);
+  EXPECT_EQ(second[0].seconds, 600u);
   ASSERT_TRUE(s.flush());
   std::vector<Record> empty;
   ASSERT_TRUE(uploadPending(collect, &empty));
@@ -146,6 +146,7 @@ TEST_F(Journal, ACorrectedFutureClockDoesNotBlockOtherSessions) {
   Session current;
   current.start(dt(), 48);
   ASSERT_TRUE(current.accept("/book.epub", dt(12, 1), 48, 60));
+  ASSERT_TRUE(current.checkpoint());
   std::vector<Record> rows;
   EXPECT_FALSE(uploadPending(collect, &rows));
   ASSERT_EQ(rows.size(), 1u);
@@ -173,6 +174,47 @@ TEST_F(Journal, CheckpointRevisionAdvancesAcrossNewIdentitiesWithShorterDuration
   const auto first = s.revision();
   ASSERT_GT(first, 0u);
   s.start(dt(13), 48);
-  ASSERT_TRUE(s.accept("/book.epub", dt(13, 1), 48, 60));
+  ASSERT_TRUE(s.accept("/book.epub", dt(13, 5), 48, 300));
   EXPECT_GT(s.revision(), first);
+}
+
+TEST_F(Journal, WaitsForFiveMinutesOfAcceptedReadingBetweenCheckpoints) {
+  Session s;
+  s.start(dt(), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 4, 59), 48, 299));
+  EXPECT_EQ(s.revision(), 0u);
+  EXPECT_EQ(faults.writes, 0u);
+  s.start(dt(12, 4, 59), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 5), 48, 1));
+  EXPECT_EQ(s.revision(), 1u);
+  const auto writes = faults.writes;
+  EXPECT_GT(writes, 0u);
+  s.start(dt(12, 5), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 9, 59), 48, 299));
+  EXPECT_EQ(faults.writes, writes);
+  EXPECT_EQ(s.revision(), 1u);
+  s.start(dt(12, 9, 59), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 10), 48, 1));
+  EXPECT_GT(faults.writes, writes);
+  EXPECT_EQ(s.revision(), 2u);
+}
+
+TEST_F(Journal, ExplicitCheckpointAndExitSaveBeforeThePeriodicThreshold) {
+  Session s;
+  s.start(dt(), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 0, 30), 48, 30));
+  ASSERT_EQ(faults.writes, 0u);
+  ASSERT_TRUE(s.checkpoint());  // Restart handoff preserves the live session.
+  EXPECT_EQ(s.revision(), 1u);
+  const auto writes = faults.writes;
+  ASSERT_TRUE(s.checkpoint());
+  EXPECT_EQ(faults.writes, writes);
+  s.start(dt(12, 0, 30), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 1), 48, 30));
+  EXPECT_EQ(faults.writes, writes);
+  ASSERT_TRUE(s.flush());  // Normal exit persists the remaining half-minute.
+  std::vector<Record> rows;
+  ASSERT_TRUE(uploadPending(collect, &rows));
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].seconds, 60u);
 }

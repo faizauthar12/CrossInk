@@ -4,6 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 
+// Periodic persistence uses accepted reading time; explicit exit/restart saves bypass this interval.
+constexpr uint32_t READING_STATS_CHECKPOINT_SECONDS = 5 * 60;
+
 constexpr size_t READING_TIME_BUCKET_COUNT = 4;
 constexpr size_t READING_DAY_OF_WEEK_COUNT = 7;
 constexpr size_t READING_HISTORY_DAYS = 730;

@@ -473,7 +473,7 @@ bool record(uint32_t day, uint32_t seconds) {
   chosen->counter.seconds =
       UINT32_MAX - chosen->counter.seconds < seconds ? UINT32_MAX : chosen->counter.seconds + seconds;
   chosen->dirty += seconds;
-  if (chosen->dirty >= 60 && !save(*chosen)) {
+  if (chosen->dirty >= READING_STATS_CHECKPOINT_SECONDS && !save(*chosen)) {
     LOG_ERR("DailyStats", "Checkpoint deferred; accepted seconds retained in RAM");
   }
   // Success means the seconds were accepted; flush() separately reports durability.

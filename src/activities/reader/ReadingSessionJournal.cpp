@@ -19,7 +19,6 @@ namespace ReadingSessionJournal {
 namespace {
 constexpr const char* DIRECTORY = "/.crosspoint/reading_sessions";
 constexpr uint8_t VERSION = 1;
-constexpr uint32_t CHECKPOINT_SECONDS = 60;
 
 bool hexId(const char* id) {
   if (strlen(id) != 32) return false;
@@ -105,7 +104,7 @@ bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, cons
   }
   pending.endedAt = utcEnd;
   pending.seconds += seconds;
-  return pending.seconds - checkpointSeconds < CHECKPOINT_SECONDS || checkpoint();
+  return pending.seconds - checkpointSeconds < READING_STATS_CHECKPOINT_SECONDS || checkpoint();
 }
 
 bool uploadPending(const Upload upload, void* context) {

@@ -100,7 +100,7 @@ TEST_F(DailyReading, SecondsForIncludesUncheckpointedSeconds) {
   EXPECT_EQ(seconds, 0u);  // missing day reads as zero
   EXPECT_TRUE(record(day, 7));
   EXPECT_TRUE(secondsFor(day, seconds));
-  EXPECT_EQ(seconds, 7u);  // cached before the 60-second checkpoint
+  EXPECT_EQ(seconds, 7u);  // cached before the five-minute checkpoint
   EXPECT_TRUE(flush());
   EXPECT_TRUE(secondsFor(day, seconds));
   EXPECT_EQ(seconds, 7u);
@@ -222,6 +222,7 @@ TEST_F(DailyReading, KeepsDeferredShortSecondsAfterTransientStorageFault) {
 TEST_F(DailyReading, RecoveredUploadAckCanRetryAfterPublishFailure) {
   const uint32_t day = dayOf(25);
   ASSERT_TRUE(record(day, 60));
+  ASSERT_TRUE(flush());
   Counter c;
   ASSERT_TRUE(read(day, c));
   c.uploaded = c.seconds;
@@ -762,4 +763,42 @@ TEST_F(DailyReading, CleanupConvertsLegacyWithoutDeletingUnsyncedHistory) {
   const size_t writes = faults.writes;
   ASSERT_TRUE(pruneSyncedMonths({2026, 10, 19}));
   EXPECT_EQ(faults.writes, writes);
+}
+
+TEST_F(DailyReading, PeriodicCheckpointsWaitForFiveMinutesAndExplicitFlushSavesTheRemainder) {
+  const auto day = dayOf(17);
+  ASSERT_TRUE(record(day, 299));
+  Counter c;
+  ASSERT_TRUE(read(day, c));
+  EXPECT_EQ(c.seconds, 0u);
+  ASSERT_TRUE(record(day, 1));
+  ASSERT_TRUE(read(day, c));
+  EXPECT_EQ(c.seconds, 300u);
+  const auto writes = faults.writes;
+  ASSERT_TRUE(record(day, 299));
+  EXPECT_EQ(faults.writes, writes);
+  ASSERT_TRUE(read(day, c));
+  EXPECT_EQ(c.seconds, 300u);
+  ASSERT_TRUE(flush());  // Exit/restart/global save bypasses the periodic threshold.
+  ASSERT_TRUE(read(day, c));
+  EXPECT_EQ(c.seconds, 599u);
+  const auto flushedWrites = faults.writes;
+  ASSERT_TRUE(flush());
+  EXPECT_EQ(faults.writes, flushedWrites);
+}
+
+TEST_F(DailyReading, FailedFiveMinuteCheckpointRetainsAcceptedTimeForExplicitFlush) {
+  const auto day = dayOf(17);
+  ASSERT_TRUE(record(day, 299));
+  faults.failOpenWrite = true;
+  ASSERT_TRUE(record(day, 1));
+  uint32_t seconds = 0;
+  ASSERT_TRUE(secondsFor(day, seconds));
+  EXPECT_EQ(seconds, 300u);
+  EXPECT_FALSE(flush());
+  faults.failOpenWrite = false;
+  ASSERT_TRUE(flush());
+  Counter c;
+  ASSERT_TRUE(read(day, c));
+  EXPECT_EQ(c.seconds, 300u);
 }

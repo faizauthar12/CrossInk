@@ -146,6 +146,7 @@
 - Remove the redundant Touch Reader Controls setting from device and web settings; Disable Touchscreen remains the full reader touch lock.
 - Reduce temporary memory used to prepare SD-font character widths, while keeping the cache up to date as text changes (adapted from CrossPoint #3948).
 - Move OPDS Browser into File Transfer, keeping room for Plugins and Settings on Home.
+- Save periodic reading-stat checkpoints every five minutes of accepted reading instead of every minute, while keeping session-end, sleep, and restart saves.
 
 ## [v1.6.1] - 2026-10-03
 
