@@ -107,6 +107,10 @@ int main(int argc, char** argv) {
     // ADC-only changes must wait for the sampler's actual next timed poll.
     if (digitalWake || static_cast<int32_t>(static_cast<uint32_t>(fakeNow) - nextSampleAt) >= 0) captureStep();
   }
+  if (!noise) {
+    assert(InputWake::hasPendingButtons());
+    assert(InputWake::hasPendingButtons());  // Peeking never consumes queued edges.
+  }
   ButtonInputBuffer::Frame frame;
   MappedInputManager mapped(frame);
   ButtonNavigator::setMappedInputManager(mapped);
@@ -142,6 +146,7 @@ int main(int argc, char** argv) {
     if (!InputWake::wait(0, primary)) break;
     assert(frames != 199);
   }
+  assert(!InputWake::hasPendingButtons());
   if (overflow) {
     assert(!frame.state);  // A full FIFO must not leave buttons stuck down.
   } else if (noise) {

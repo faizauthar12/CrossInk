@@ -262,6 +262,14 @@ void InputWake::stopCapture() {
 
 bool InputWake::capturing() { return captureEnabled; }
 
+bool InputWake::hasPendingButtons() {
+  if (!captureEnabled) return false;
+  portENTER_CRITICAL(&bufferMux);
+  const bool busy = buttonBuffer.pending() || buttonBuffer.debouncing() || buttonBuffer.held();
+  portEXIT_CRITICAL(&bufferMux);
+  return busy;
+}
+
 ButtonInputBuffer::Frame InputWake::takeFrame() {
   static uint32_t reportedLost = 0;
   static uint32_t lastStackReport = 0;
@@ -298,6 +306,7 @@ bool InputWake::wait(const uint32_t timeoutMs, InputManager&) {
 bool InputWake::startCapture() { return false; }
 void InputWake::stopCapture() {}
 bool InputWake::capturing() { return false; }
+bool InputWake::hasPendingButtons() { return false; }
 ButtonInputBuffer::Frame InputWake::takeFrame() { return {}; }
 void InputWake::setSharedConfirmPowerShortPressEmitsPower(bool enabled) {
   InputManager::setSharedConfirmPowerShortPressEmitsPower(enabled);

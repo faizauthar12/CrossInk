@@ -207,6 +207,7 @@ void XtcReaderActivity::openReaderMenu() {
 }
 
 void XtcReaderActivity::loop() {
+  if (mappedInput.hasPendingActivity() || RenderLock::peek()) statsSaveDelay.defer(millis());
   pluginEvents.pollWhenIdle(getCurrentBookPath());
   if (!xtc) {
     return;
@@ -464,7 +465,10 @@ void XtcReaderActivity::loop() {
 
   const bool prevTriggered = tilt.prev || frontPrev || touch.prev || shortcutPreviousPage;
   const bool nextTriggered = tilt.next || frontNext || touch.next || shortcutPageTurn;
-  if (!prevTriggered && !nextTriggered) return;
+  if (!prevTriggered && !nextTriggered) {
+    checkpointReadingStatsWhenIdle();
+    return;
+  }
 
   // Mirror EPUB's manual-turn guard: the render task updates the panel
   // concurrently, so accepting another turn before it owns RenderLock can mix
@@ -669,7 +673,7 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source, const b
   std::optional<RenderLock> statsLock;
   if (!RenderLock::heldByCurrentTask()) statsLock.emplace(*this);
   // An unrendered turn must never overwrite the preceding accepted interval.
-  flushDeferredReadingStats();
+  flushDeferredReadingStats(!deferStorage);
   uint32_t seconds = 0;
   if (currentPageReadingSecondsForStats(seconds, source)) {
     sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
@@ -682,21 +686,46 @@ void XtcReaderActivity::recordCurrentPageReadingTime(const char* source, const b
   pageShownAtMs = 0UL;
 }
 
-void XtcReaderActivity::flushDeferredReadingStats() {
-  if (deferredReadingStats.seconds == 0) return;
-  const auto interval = deferredReadingStats;
-  deferredReadingStats = {};
-  const unsigned long startedAt = millis();
-  if (xtc &&
-      !readingSessionJournal.accept(xtc->getPath().c_str(), interval.end, interval.utcOffset, interval.seconds)) {
-    LOG_ERR("SessionStats", "Reading session checkpoint deferred");
+void XtcReaderActivity::checkpointReadingStatsWhenIdle() {
+  const uint32_t now = millis();
+  RenderLock lock(RenderLock::Mode::Try);
+  if (!lock.ownsLock() || mappedInput.hasPendingActivity() || shortcutPageTurnPending || shortcutPreviousPagePending ||
+      deferredReadingStats.seconds != 0) {
+    statsSaveDelay.defer(now);
+    return;
+  }
+  if (!statsSaveDelay.ready(now) || (pageShownAtMs != 0 && uint32_t(now - pageShownAtMs) < 1000)) return;
+  statsSaveDelay.defer(now);  // Failed writes retry at most once per quiet second.
+  if (!readingSessionJournal.checkpointIfDue()) LOG_ERR("SessionStats", "Reading session checkpoint deferred");
+  // A captured press during the journal write gets priority over the next file.
+  if (mappedInput.hasPendingActivity()) {
+    statsSaveDelay.defer(millis());
+    return;
   }
   if (xtc && readingSessionJournal.revision() != statsCheckpointRevision &&
       saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
                                    xtc->getCachePath())) {
     statsCheckpointRevision = readingSessionJournal.revision();
   }
-  if (!dailyReadingSession.accept(interval.end, interval.utcOffset, interval.seconds, sessionReadingSeconds)) {
+  if (!DailyReadingStats::checkpointIfDue()) LOG_ERR("DailyStats", "Reading counters checkpoint deferred");
+}
+
+void XtcReaderActivity::flushDeferredReadingStats(const bool allowCheckpoint) {
+  if (deferredReadingStats.seconds == 0) return;
+  const auto interval = deferredReadingStats;
+  deferredReadingStats = {};
+  const unsigned long startedAt = millis();
+  if (xtc && !readingSessionJournal.accept(xtc->getPath().c_str(), interval.end, interval.utcOffset, interval.seconds,
+                                           allowCheckpoint)) {
+    LOG_ERR("SessionStats", "Reading session checkpoint deferred");
+  }
+  if (allowCheckpoint && xtc && readingSessionJournal.revision() != statsCheckpointRevision &&
+      saveReadingSessionCheckpoint(stats, globalStats, sessionReadingSeconds, &readingSessionDates,
+                                   xtc->getCachePath())) {
+    statsCheckpointRevision = readingSessionJournal.revision();
+  }
+  if (!dailyReadingSession.accept(interval.end, interval.utcOffset, interval.seconds, sessionReadingSeconds,
+                                  allowCheckpoint)) {
     LOG_ERR("DailyStats", "Cannot record accepted reading interval");
   }
   const unsigned long duration = millis() - startedAt;
@@ -1215,7 +1244,7 @@ void XtcReaderActivity::render(RenderLock&&) {
   // still protects the session. Normal pages drain before starting their timer.
   struct FlushStatsOnReturn {
     XtcReaderActivity& reader;
-    ~FlushStatsOnReturn() { reader.flushDeferredReadingStats(); }
+    ~FlushStatsOnReturn() { reader.flushDeferredReadingStats(false); }
   } flushStats{*this};
 
   showOpeningFeedback();
@@ -1634,7 +1663,7 @@ void XtcReaderActivity::startDailyReadingInterval() {
   if (pageShownAtMs != 0) getCurrentLocalDailyReadingDateTime(local);
   // Capture the new page clock before storage, but drain with the old start
   // time before replacing it. Storage time is spent reading the visible page.
-  flushDeferredReadingStats();
+  flushDeferredReadingStats(false);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);

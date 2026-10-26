@@ -240,6 +240,8 @@ class MappedInputManager {
 #endif
   // Directions for tabbed menus, derived from the physical button layout.
   Button menuButton(Button direction) const;
+  // Non-consuming: queued edges, held keys/fingers, or input in this frame.
+  bool hasPendingActivity() const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;

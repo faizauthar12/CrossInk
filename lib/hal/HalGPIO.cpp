@@ -182,6 +182,8 @@ void HalGPIO::startButtonCapture() { InputWake::startCapture(); }
 void HalGPIO::stopButtonCapture() { InputWake::stopCapture(); }
 uint32_t HalGPIO::buttonSampleTime() const { return InputWake::capturing() ? buttonFrame.timestamp : millis(); }
 
+bool HalGPIO::hasPendingButtonInput() const { return InputWake::hasPendingButtons() || inputMgr.isDebouncePending(); }
+
 void HalGPIO::update() {
   if (InputWake::capturing()) {
 #if CROSSINK_APP_CAP_TOUCH

@@ -802,3 +802,36 @@ TEST_F(DailyReading, FailedFiveMinuteCheckpointRetainsAcceptedTimeForExplicitFlu
   ASSERT_TRUE(read(day, c));
   EXPECT_EQ(c.seconds, 300u);
 }
+
+TEST_F(DailyReading, DefersDueCheckpointWhilePagingWithoutLosingAcceptedSeconds) {
+  Session s;
+  s.start(dt(1, 12), 48);
+  ASSERT_TRUE(s.accept(dt(1, 12, 5), 48, 300, 300, false));
+  Counter disk;
+  ASSERT_TRUE(read(dayOf(1), disk));
+  EXPECT_EQ(disk.seconds, 0u);
+  s.start(dt(1, 12, 5), 48);
+  ASSERT_TRUE(s.accept(dt(1, 12, 5, 10), 48, 10, 310, false));
+  ASSERT_TRUE(read(dayOf(1), disk));
+  EXPECT_EQ(disk.seconds, 0u);
+  faults.failOpenWrite = true;
+  EXPECT_FALSE(checkpointIfDue());
+  faults.failOpenWrite = false;
+  ASSERT_TRUE(checkpointIfDue());
+  ASSERT_TRUE(read(dayOf(1), disk));
+  EXPECT_EQ(disk.seconds, 310u);
+  ASSERT_TRUE(checkpointIfDue());
+  EXPECT_EQ(secondsOn(1), 310u);
+}
+TEST_F(DailyReading, ExplicitFlushBypassesDeferralAcrossMidnight) {
+  Session s;
+  s.start(dt(1, 23, 59, 45), 48);
+  ASSERT_TRUE(s.accept(dt(2, 0, 0, 15), 48, 30, 30, false));
+  ASSERT_TRUE(checkpointIfDue());
+  Counter disk;
+  ASSERT_TRUE(read(dayOf(1), disk));
+  EXPECT_EQ(disk.seconds, 0u);
+  ASSERT_TRUE(flush());
+  EXPECT_EQ(secondsOn(1), 15u);
+  EXPECT_EQ(secondsOn(2), 15u);
+}

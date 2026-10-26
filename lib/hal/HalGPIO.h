@@ -95,6 +95,7 @@ class HalGPIO {
   void startButtonCapture();
   void stopButtonCapture();
   uint32_t buttonSampleTime() const;
+  bool hasPendingButtonInput() const;
   // Returns early on a hardware input edge; retains timed polling as fallback.
   bool waitForInput(uint32_t timeoutMs);
   bool isPressed(uint8_t buttonIndex) const;

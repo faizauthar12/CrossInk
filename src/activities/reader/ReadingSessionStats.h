@@ -13,6 +13,16 @@ struct DeferredReadingStatsInterval {
   uint8_t utcOffset = 255;
 };
 
+// Main-loop owned. Rendering and queued/held input keep periodic writes waiting;
+// explicit lifecycle saves do not consult this delay.
+class ReadingStatsSaveDelay {
+  uint32_t lastBusyMs = 0;
+
+ public:
+  void defer(uint32_t now) { lastBusyMs = now; }
+  bool ready(uint32_t now) const { return uint32_t(now - lastBusyMs) >= 1000; }
+};
+
 // Bounded, allocation-free dated totals for the live session. Capture each
 // accepted page interval so pauses never become fictitious continuous reading.
 class ReadingSessionDates {

@@ -72,7 +72,7 @@ struct DailySession {
     assert(offset == 48);
     ++starts;
   }
-  bool accept(const ReadingStatsDateTime& end, uint8_t offset, uint32_t seconds, uint32_t sessionSeconds) {
+  bool accept(const ReadingStatsDateTime& end, uint8_t offset, uint32_t seconds, uint32_t sessionSeconds, bool = true) {
     assert(end.date.value == 2 && offset == 48);
     ++accepts;
     lastSessionSeconds = sessionSeconds;
@@ -144,7 +144,7 @@ struct ReadingSessionDates {
 };
 struct ReadingSessionJournalStub {
   void start(const ReadingStatsDateTime&, uint8_t) {}
-  bool accept(const char*, const ReadingStatsDateTime&, uint8_t, uint32_t) { return true; }
+  bool accept(const char*, const ReadingStatsDateTime&, uint8_t, uint32_t, bool = true) { return true; }
   bool flush() { return true; }
   uint32_t revision() const { return 0; }
 };
@@ -234,7 +234,7 @@ struct EpubReaderActivity : ReaderState {
   void onFrontlightPanelClosed();
   bool currentPageReadingSecondsForStats(uint32_t&, const char*) const;
   void recordCurrentPageReadingTime(const char*, bool=false);
-  void flushDeferredReadingStats();
+  void flushDeferredReadingStats(bool = true);
   void startDailyReadingInterval();
   void clearPendingManualPageTurns() {}
   void pauseReadingPaceTimer(const char*) {}
@@ -251,7 +251,7 @@ struct XtcReaderActivity : ReaderState {
   void onFrontlightPanelClosed();
   bool currentPageReadingSecondsForStats(uint32_t&, const char*) const;
   void recordCurrentPageReadingTime(const char*, bool=false);
-  void flushDeferredReadingStats();
+  void flushDeferredReadingStats(bool = true);
   void startDailyReadingInterval();
   void resumeReadingStatsTimer(const char*);
   void pauseReadingStatsTimer(const char*);

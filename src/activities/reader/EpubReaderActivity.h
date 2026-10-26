@@ -214,6 +214,7 @@ class EpubReaderActivity final : public Activity {
   DailyReadingStats::Session dailyReadingSession;
   ReadingSessionDates readingSessionDates;
   DeferredReadingStatsInterval deferredReadingStats;
+  ReadingStatsSaveDelay statsSaveDelay;
   ReadingSessionJournal::Session readingSessionJournal;
   uint32_t statsCheckpointRevision = 0;
   void startDailyReadingInterval();
@@ -451,7 +452,8 @@ class EpubReaderActivity final : public Activity {
   bool forwardPageReadElapsed(uint32_t& seconds, const char* source) const;
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
   void recordCurrentPageReadingTime(const char* source = "unknown", bool deferStorage = false);
-  void flushDeferredReadingStats();
+  void flushDeferredReadingStats(bool allowCheckpoint = true);
+  void checkpointReadingStatsWhenIdle();
   void recordForwardPagePaceSample(uint32_t seconds, const char* source);
   bool getTimeLeftPaceSeconds(float& avgSeconds, const char*& source, uint16_t& sampleCount) const;
   void refreshBookPageEstimate();

@@ -218,3 +218,38 @@ TEST_F(Journal, ExplicitCheckpointAndExitSaveBeforeThePeriodicThreshold) {
   ASSERT_EQ(rows.size(), 1u);
   EXPECT_EQ(rows[0].seconds, 60u);
 }
+
+TEST_F(Journal, DefersDueCheckpointWhilePagingAndRetriesWithoutDuplicatingTime) {
+  Session s;
+  s.start(dt(), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 5), 48, 300, false));
+  EXPECT_EQ(s.revision(), 0u);
+  EXPECT_TRUE(Storage.files.empty());
+  s.start(dt(12, 5), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 5, 10), 48, 10, false));
+  EXPECT_TRUE(Storage.files.empty());
+  faults.failOpenWrite = true;
+  EXPECT_FALSE(s.checkpointIfDue());
+  EXPECT_EQ(s.revision(), 0u);
+  faults.failOpenWrite = false;
+  ASSERT_TRUE(s.checkpointIfDue());
+  EXPECT_EQ(s.revision(), 1u);
+  ASSERT_TRUE(s.checkpointIfDue());
+  EXPECT_EQ(s.revision(), 1u);
+  std::vector<Record> rows;
+  ASSERT_TRUE(uploadPending(collect, &rows));
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].seconds, 310u);
+}
+TEST_F(Journal, ExplicitFlushBypassesDeferralBeforeFiveMinutes) {
+  Session s;
+  s.start(dt(), 48);
+  ASSERT_TRUE(s.accept("/book.epub", dt(12, 0, 20), 48, 20, false));
+  ASSERT_TRUE(s.checkpointIfDue());
+  EXPECT_TRUE(Storage.files.empty());
+  ASSERT_TRUE(s.flush());
+  std::vector<Record> rows;
+  ASSERT_TRUE(uploadPending(collect, &rows));
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].seconds, 20u);
+}

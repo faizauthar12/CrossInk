@@ -1608,8 +1608,9 @@ No historical duration is inferred from global totals, buckets, or history bits.
 
 RAM is bounded: two day counters plus at most nine seconds of pending short-session
 intervals per reader. Saves are debounced to 300 accepted seconds (five minutes),
-and flushed at existing global-stat save/exit boundaries and before sync. A sudden power loss can
-lose uncheckpointed accepted seconds (normally under 300), plus the current page
+with periodic checkpoints waiting for one second of quiet reader input/rendering.
+Explicit global-stat saves, reader exits and sync still flush immediately. A sudden power loss can
+lose uncheckpointed accepted seconds (normally under 300, but longer while paging), plus the current page
 interval that has not yet been accepted. Normal sleep commits through reader exit.
 Daily counters survive book/global-total resets and book moves/merges; they are
 monotonic device history for sync, independent of those resettable totals. Deleting
@@ -1746,7 +1747,8 @@ New measured sessions supplement the existing book/global counters and daily
 history; no existing stats file or EPUB cache format changes. Each tracking
 session keeps a random 128-bit ID and cumulative active seconds, checkpointed
 after another 300 accepted reading seconds (five minutes) and on normal reader
-exit or tracking disable. Matching previews of the existing book/global counters are saved without
+exit or tracking disable. Periodic writes wait until reader input/rendering have been quiet for
+one second; explicit saves bypass that delay. Matching previews of the existing book/global counters are saved without
 consuming the live session, including temporary overlays and restart handoffs. A checkpoint excludes idle page intervals using the existing timer.
 Intervals with an unavailable/corrected clock remain in the existing counters
 but do not produce fabricated dated sessions. The outbox is independent of book

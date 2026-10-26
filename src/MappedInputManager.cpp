@@ -1035,6 +1035,30 @@ bool MappedInputManager::isPhysicalPressed(const Button button) const {
   return mapButton(button, &HalGPIO::isPressed);
 }
 
+bool MappedInputManager::hasPendingActivity() const {
+#ifndef SIMULATOR
+  if (gpio.hasPendingButtonInput()) return true;
+#else
+  for (size_t i = 0; i < BUTTON_COUNT; ++i) {
+    if (simulatorPressed[i] || simulatorReleased[i]) return true;
+  }
+#if CROSSINK_APP_CAP_TOUCH
+  if (simulatorTouch.pressed || simulatorTouch.pressedThisFrame || simulatorTouch.releasedThisFrame) return true;
+#endif
+#endif
+  // Avoid mapped tap/release helpers: they can consume gesture suppression.
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased()) return true;
+  for (size_t i = 0; i < BUTTON_COUNT; ++i) {
+    if (isPhysicalPressed(static_cast<Button>(i)) || injectedReleases[i]) return true;
+  }
+#if CROSSINK_APP_CAP_TOUCH
+  float x = 0, y = 0;
+  return gpio.wasTouchActivity() || gpio.isTouchHeldAt(x, y);
+#else
+  return false;
+#endif
+}
+
 bool MappedInputManager::wasAnyPressed() const {
 #ifdef SIMULATOR
   if (std::any_of(simulatorPressed.begin(), simulatorPressed.end(), [](bool pressed) { return pressed; })) {

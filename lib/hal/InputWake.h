@@ -28,6 +28,8 @@ class InputWake {
   static bool startCapture();
   static void stopCapture();
   static bool capturing();
+  // Non-consuming snapshot for optional work that should yield to button input.
+  static bool hasPendingButtons();
   static ButtonInputBuffer::Frame takeFrame();
   static void setSharedConfirmPowerShortPressEmitsPower(bool enabled);
 };

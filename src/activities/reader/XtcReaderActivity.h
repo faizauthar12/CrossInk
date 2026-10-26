@@ -42,6 +42,7 @@ class XtcReaderActivity final : public Activity {
   DailyReadingStats::Session dailyReadingSession;
   ReadingSessionDates readingSessionDates;
   DeferredReadingStatsInterval deferredReadingStats;
+  ReadingStatsSaveDelay statsSaveDelay;
   ReadingSessionJournal::Session readingSessionJournal;
   uint32_t statsCheckpointRevision = 0;
   void startDailyReadingInterval();
@@ -93,7 +94,8 @@ class XtcReaderActivity final : public Activity {
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
   bool forwardPageReadElapsed(uint32_t& seconds, const char* source) const;
   void recordCurrentPageReadingTime(const char* source = "unknown", bool deferStorage = false);
-  void flushDeferredReadingStats();
+  void flushDeferredReadingStats(bool allowCheckpoint = true);
+  void checkpointReadingStatsWhenIdle();
   void recordForwardPageTurn(uint32_t seconds, bool recordPace);
   bool formatTimeLeftLabel(char* buf, size_t len, uint32_t pageToRender, bool bookEstimate) const;
   void commitReadingStats();

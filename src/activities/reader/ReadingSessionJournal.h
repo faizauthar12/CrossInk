@@ -32,8 +32,12 @@ class Session {
   }
   uint32_t revision() const { return checkpointRevision; }
   bool checkpoint();
+  bool checkpointIfDue();
   // Uses the same accepted page intervals as the existing daily counters.
-  bool accept(const char* bookPath, const ReadingStatsDateTime& end, uint8_t offset, uint32_t seconds);
+  // Suppresses periodic writes only; ending a discontinuous session still
+  // preserves its record before reusing the bounded in-memory slot.
+  bool accept(const char* bookPath, const ReadingStatsDateTime& end, uint8_t offset, uint32_t seconds,
+              bool allowCheckpoint = true);
   bool flush();
 };
 }  // namespace ReadingSessionJournal

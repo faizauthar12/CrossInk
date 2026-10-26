@@ -71,6 +71,10 @@ bool Session::checkpoint() {
   return true;
 }
 
+bool Session::checkpointIfDue() {
+  return pending.seconds - checkpointSeconds < READING_STATS_CHECKPOINT_SECONDS || checkpoint();
+}
+
 bool Session::flush() {
   if (!checkpoint()) return false;
   pending = {};
@@ -79,7 +83,7 @@ bool Session::flush() {
 }
 
 bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, const uint8_t offset,
-                     const uint32_t seconds) {
+                     const uint32_t seconds, const bool allowCheckpoint) {
   if (!isValidReadingStatsInterval(intervalStart, end, intervalOffset, offset, seconds)) return true;
   const uint64_t start = localSeconds(intervalStart);
   const int16_t minutes = (int(offset) - 48) * 15;
@@ -104,7 +108,7 @@ bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, cons
   }
   pending.endedAt = utcEnd;
   pending.seconds += seconds;
-  return pending.seconds - checkpointSeconds < READING_STATS_CHECKPOINT_SECONDS || checkpoint();
+  return !allowCheckpoint || checkpointIfDue();
 }
 
 bool uploadPending(const Upload upload, void* context) {
