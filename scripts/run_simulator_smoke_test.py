@@ -314,6 +314,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_LIFECYCLE"] = "1"
         if args.chapter_percentage:
             env["CROSSINK_SIMULATOR_SMOKE_CHAPTER_PERCENTAGE"] = "1"
+        if args.centered_status_bar:
+            env["CROSSINK_SIMULATOR_SMOKE_CENTERED_STATUS_BAR"] = "1"
         if args.status_bar_feature:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_FEATURE"] = "1"
         if args.status_bar_captures:
@@ -486,6 +488,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--status-bar-lifecycle", action="store_true", help="Exercise reader settings return and reflow")
     parser.add_argument("--tilt-settings", action="store_true", help="Check tilt preference visibility, device editing and persistence")
     parser.add_argument("--chapter-percentage", action="store_true", help="Check chapter percentage slot selection, removal, reload and rendered formats")
+    parser.add_argument("--centered-status-bar", action="store_true", help="Check Center Status Bar and Separator rows, popups and persistence")
     parser.add_argument("--status-bar-feature", action="store_true", help="Check status bar visibility, independent sizes, disk reload and rendered theme/orientation matrix")
     parser.add_argument("--screen-calibration", action="store_true", help="Check screen calibration button/touch editing, save, cancel, reset and rotations")
     parser.add_argument("--receive-folder", action="store_true", help="Check receive folder selection, navigation and cancellation")

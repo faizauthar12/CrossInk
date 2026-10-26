@@ -32,6 +32,8 @@ enum BarItem {
   PROGRESS_BAR,
   PROGRESS_BAR_THICKNESS,
   HIDE_BAR,
+  CENTER_ITEMS,
+  SEPARATOR,
 };
 
 // The display (UI header) bar has three slots, then its own option rows.
@@ -178,9 +180,10 @@ ReaderStatusBarPosition StatusBarSettingsActivity::selectedPosition() const {
 }
 
 void StatusBarSettingsActivity::refreshItemCount() {
-  visibleItemCount = displayContext       ? DISPLAY_TEXT_SIZE_ROW + 1
-                     : view == View::Root ? ROOT_TEXT_SIZE_ROW + 1
-                                          : HIDE_BAR + 1;
+  visibleItemCount = displayContext ? DISPLAY_TEXT_SIZE_ROW + 1
+                     : view == View::Root
+                         ? ROOT_TEXT_SIZE_ROW + 1
+                         : (SETTINGS.readerStatusBar(selectedPosition()).centered ? SEPARATOR : CENTER_ITEMS) + 1;
   selectedIndex = std::clamp(selectedIndex, 0, visibleItemCount - 1);
 }
 
@@ -324,16 +327,36 @@ void StatusBarSettingsActivity::openOptionPicker() {
     requestUpdate();
     return;
   }
-  if (!displayContext && item == HIDE_BAR) {
-    constexpr StrId toggleNames[] = {StrId::STR_OFF, StrId::STR_ON};
-    optionPopup.show(StrId::STR_HIDE, toggleNames, 2, config.hidden ? 1 : 0, [this, position](const int selected) {
-      auto updated = SETTINGS.readerStatusBar(position);
-      updated.hidden = selected != 0;
-      SETTINGS.setReaderStatusBar(position, updated);
-      SETTINGS.saveToFile();
-      listNav.requestSelection(selectedIndex);
-      requestUpdate();
-    });
+  // Toggle rows flip in place, like the main Settings toggles.
+  if (!displayContext && (item == HIDE_BAR || item == CENTER_ITEMS)) {
+    auto updated = config;
+    if (item == HIDE_BAR)
+      updated.hidden = !updated.hidden;
+    else
+      updated.centered = !updated.centered;
+    SETTINGS.setReaderStatusBar(position, updated);
+    SETTINGS.saveToFile();
+    if (item == CENTER_ITEMS) refreshItemCount();  // The Separator row only exists while centered.
+    listNav.requestSelection(selectedIndex);
+    requestUpdate();
+    return;
+  }
+  if (!displayContext && item == SEPARATOR) {
+    std::vector<std::string> glyphs;
+    glyphs.reserve(static_cast<size_t>(ReaderStatusBarSeparator::Count));
+    for (uint8_t i = 0; i < static_cast<uint8_t>(ReaderStatusBarSeparator::Count); ++i) {
+      glyphs.emplace_back(readerStatusBarSeparatorGlyph(static_cast<ReaderStatusBarSeparator>(i)));
+    }
+    optionPopup.show(StrId::STR_SEPARATOR, glyphs, static_cast<int>(config.separator),
+                     [this, position](const int selected) {
+                       if (selected < 0 || selected >= static_cast<int>(ReaderStatusBarSeparator::Count)) return;
+                       auto updated = SETTINGS.readerStatusBar(position);
+                       updated.separator = static_cast<ReaderStatusBarSeparator>(selected);
+                       SETTINGS.setReaderStatusBar(position, updated);
+                       SETTINGS.saveToFile();
+                       listNav.requestSelection(selectedIndex);
+                       requestUpdate();
+                     });
     requestUpdate();
     return;
   }
@@ -485,7 +508,15 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
         row.value = progressModeLabel(config.progressBar);
       } else if (item == HIDE_BAR) {
         row.label = tr(STR_HIDE);
-        row.value = config.hidden ? tr(STR_ON) : tr(STR_OFF);
+        row.toggle = true;
+        row.toggleChecked = config.hidden;
+      } else if (item == CENTER_ITEMS) {
+        row.label = tr(STR_CENTER_STATUS_BAR);
+        row.toggle = true;
+        row.toggleChecked = config.centered;
+      } else if (item == SEPARATOR) {
+        row.label = tr(STR_SEPARATOR);
+        row.value = readerStatusBarSeparatorGlyph(config.separator);
       } else {
         row.label = tr(STR_PROGRESS_BAR_THICKNESS);
         row.value = thicknessLabel(config.progressBarThickness);

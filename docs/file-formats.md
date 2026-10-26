@@ -35,6 +35,15 @@ reflows EPUB/TXT around the saved text position. XTC preserves its fixed-layout
 page and clears the displayed status strip. These fields round-trip through
 settings export/import and the web status-bar editor.
 
+`readerStatusBars.top.centered` and `readerStatusBars.bottom.centered` are
+optional booleans (Center Status Bar). Missing values default to `false`. When
+`true`, that bar draws every non-empty slot as one centered row in slot order.
+`readerStatusBars.top.separator` and `readerStatusBars.bottom.separator` pick the
+glyph between items: bullet `•` (`0`), en dash `–` (`1`), or `|` (`2`). Missing
+or invalid values fall back to the bullet. Bar height and reader pagination are
+unaffected. These fields round-trip through settings export/import and the web
+status-bar editor.
+
 `readerStatusBars.top.battery`, `readerStatusBars.bottom.battery`, and the root
 `displayBatteryStyle` select how a Battery slot renders in that bar: Icon + %
 (`0`), Icon Only (`1`), or % Only (`2`). Invalid values fall back to Icon + %.

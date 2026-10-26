@@ -573,7 +573,8 @@ struct ReaderDrawerLayoutSmokeTest {
 // while the smoke runner holds the render mutex.
 struct StatusBarFeatureSmokeTest {
   using Capture = std::function<void(const std::string&)>;
-  static bool open(StatusBarSettingsActivity& editor) {
+  // Taps or confirms the selected row; false only when a touch row could not be found.
+  static bool press(StatusBarSettingsActivity& editor) {
 #if CROSSINK_APP_CAP_TOUCH
     if (mappedInputManager.hasTouchHardware()) {
       freeink::ui::Interaction hit;
@@ -589,7 +590,7 @@ struct StatusBarFeatureSmokeTest {
         mappedInputManager.simulatorInjectTouchRelease(x, tapY);
         editor.loop();
         mappedInputManager.simulatorClearInputFrame();
-        return editor.optionPopup.isActive();
+        return true;
       }
       return false;
     }
@@ -600,8 +601,11 @@ struct StatusBarFeatureSmokeTest {
     mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
     editor.loop();
     mappedInputManager.simulatorClearInputFrame();
-    return editor.optionPopup.isActive();
+    return true;
   }
+  static bool open(StatusBarSettingsActivity& editor) { return press(editor) && editor.optionPopup.isActive(); }
+  // Toggle rows flip in place without opening a popup.
+  static bool flip(StatusBarSettingsActivity& editor) { return press(editor) && !editor.optionPopup.isActive(); }
   static bool choose(StatusBarSettingsActivity& editor, int index, RenderLock& lock) {
     editor.render(std::move(lock));
 #if CROSSINK_APP_CAP_TOUCH
@@ -705,6 +709,50 @@ struct StatusBarFeatureSmokeTest {
     }
     return true;
   }
+  // Rows after the seven slots and five option rows: Center Status Bar, then Separator.
+  static bool centeredBar(RenderLock& lock, const Capture& capture) {
+    constexpr int centerRow = 12;
+    constexpr int separatorRow = 13;
+    const auto original = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom);
+    auto config = ReaderStatusBarConfig{};
+    config.slots = {ReaderStatusBarItem::TimeLeftChapter,
+                    ReaderStatusBarItem::Empty,
+                    ReaderStatusBarItem::Empty,
+                    ReaderStatusBarItem::TitleChapter,
+                    ReaderStatusBarItem::ChapterPageCount,
+                    ReaderStatusBarItem::BookProgressPercentage,
+                    ReaderStatusBarItem::Empty};
+    SETTINGS.setReaderStatusBar(ReaderStatusBarPosition::Bottom, config);
+    StatusBarSettingsActivity editor(renderer, mappedInputManager, true);
+    editor.onEnter();
+    editor.selectedIndex = 1;
+    editor.handleSelection();
+    if (editor.visibleItemCount != centerRow + 1) return false;
+    editor.selectedIndex = centerRow;
+    editor.render(std::move(lock));
+    editor.render(std::move(lock));
+    capture("centered-settings-off");
+    if (!flip(editor) || !SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).centered) return false;
+    if (editor.visibleItemCount != separatorRow + 1) return false;
+    editor.selectedIndex = separatorRow;
+    editor.render(std::move(lock));
+    editor.render(std::move(lock));
+    capture("centered-settings-on");
+    if (!open(editor)) return false;
+    editor.render(std::move(lock));
+    capture("centered-separator-picker");
+    if (std::strcmp(editor.optionPopup.simulatorOptionLabel(1), "\xE2\x80\x93") != 0) return false;
+    if (!choose(editor, 2, lock)) return false;
+    editor.render(std::move(lock));
+    editor.render(std::move(lock));
+    capture("centered-settings-pipe");
+    editor.onExit();
+    if (!SETTINGS.loadFromFile()) return false;
+    const auto saved = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom);
+    SETTINGS.setReaderStatusBar(ReaderStatusBarPosition::Bottom, original);
+    SETTINGS.saveToFile();
+    return saved.centered && saved.separator == ReaderStatusBarSeparator::Pipe;
+  }
   static bool settings(RenderLock& lock, const Capture& capture) {
     SETTINGS.legacyXtcTopUsesBottom = 1;
     const auto top = SETTINGS.topReaderStatusBar.slots;
@@ -731,17 +779,11 @@ struct StatusBarFeatureSmokeTest {
         for (int repeat = 0; repeat < 4; ++repeat) {
           const auto position = bar ? ReaderStatusBarPosition::Bottom : ReaderStatusBarPosition::Top;
           const bool before = SETTINGS.readerStatusBar(position).hidden;
-          if (!open(editor)) return false;
-          editor.render(std::move(lock));
-          if (repeat == 0)
-            capture("hide-picker-lang-" + std::to_string(static_cast<int>(language)) + "-o-" +
-                    std::to_string(orientation) + "-bar-" + std::to_string(bar));
-          if (!choose(editor, mappedInputManager.hasTouchHardware() ? !before : 1, lock)) return false;
+          if (!flip(editor)) return false;
           if (SETTINGS.readerStatusBar(position).hidden == before || SETTINGS.topReaderStatusBar.slots != top ||
               SETTINGS.bottomReaderStatusBar.slots != bottom || SETTINGS.legacyXtcTopUsesBottom != 1)
             return false;
           editor.render(std::move(lock));
-          editor.render(std::move(lock));  // Closing a popup first restores its saved framebuffer.
           if (!editor.simulatorSelectedRowVisible) return false;
           if (repeat == 0)
             capture("hide-row-lang-" + std::to_string(static_cast<int>(language)) + "-o-" +
@@ -3411,6 +3453,44 @@ class SimulatorSmokeTest {
     RenderLock lock;
     const auto capture = [&](const std::string& name) { captureStatusBarScreen(name.c_str()); };
     const char* longTitle = "Les paramètres globaux très longs avec descendantes gypsy jumping";
+    {
+      // Centered bars: every separator, then a long title on a bookmarked page.
+      renderer.setOrientation(GfxRenderer::Portrait);
+      ReaderStatusBarContent content;
+      content.bookProgress = 64;
+      content.chapterPage = 4;
+      content.chapterPageCount = 12;
+      content.chapterTitle = "Chapter 3";
+      content.timeLeftChapter = "12m";
+      content.previewClock = "10:30";
+      ReaderStatusBarConfig centeredBar;
+      centeredBar.centered = true;
+      centeredBar.slots = {ReaderStatusBarItem::Clock,
+                           ReaderStatusBarItem::TimeLeftChapter,
+                           ReaderStatusBarItem::Empty,
+                           ReaderStatusBarItem::TitleChapter,
+                           ReaderStatusBarItem::ChapterPageCount,
+                           ReaderStatusBarItem::BookProgressPercentage,
+                           ReaderStatusBarItem::Battery};
+      std::array<uint64_t, static_cast<size_t>(ReaderStatusBarSeparator::Count)> hashes{};
+      for (uint8_t sep = 0; sep < hashes.size(); ++sep) {
+        centeredBar.separator = static_cast<ReaderStatusBarSeparator>(sep);
+        renderer.clearScreen();
+        GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content, &centeredBar);
+        GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content, &centeredBar);
+        hashes[sep] = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+        capture("centered-separator-" + std::to_string(sep));
+      }
+      if (hashes[0] == hashes[1] || hashes[1] == hashes[2] || hashes[0] == hashes[2])
+        fail("Centered status bar separators did not change the rendered bar");
+      content.chapterTitle = longTitle;
+      content.bookmarked = true;
+      centeredBar.separator = ReaderStatusBarSeparator::Bullet;
+      renderer.clearScreen();
+      GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content, &centeredBar);
+      GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content, &centeredBar);
+      capture("centered-long-title-bookmarked");
+    }
     for (uint8_t theme = 0; theme < CrossPointSettings::UI_THEME_COUNT; ++theme) {
       if (theme == CrossPointSettings::COVER_GRID && !UITheme::supportsCoverGrid()) continue;
       SETTINGS.uiTheme = theme;
@@ -6837,6 +6917,13 @@ class SimulatorSmokeTest {
           const auto capture = [&](const std::string& name) { captureStatusBarScreen(name.c_str()); };
           if (!StatusBarFeatureSmokeTest::chapterPercentage(lock, capture)) fail("Chapter percentage controls failed");
           LOG_INF("SMOKE", "Simulator smoke test passed: chapter percentage");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CENTERED_STATUS_BAR")) {
+          RenderLock lock;
+          const auto capture = [&](const std::string& name) { captureStatusBarScreen(name.c_str()); };
+          if (!StatusBarFeatureSmokeTest::centeredBar(lock, capture)) fail("Centered status bar settings failed");
+          LOG_INF("SMOKE", "Simulator smoke test passed: centered status bar");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_FEATURE")) {

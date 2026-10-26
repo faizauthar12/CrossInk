@@ -1294,7 +1294,8 @@ void CrossPointSettings::setReaderStatusBar(const ReaderStatusBarPosition positi
     if (topReaderStatusBar.slots != config.slots || topReaderStatusBar.percentageFormat != config.percentageFormat ||
         topReaderStatusBar.progressBar != config.progressBar ||
         topReaderStatusBar.progressBarThickness != config.progressBarThickness ||
-        topReaderStatusBar.batteryStyle != config.batteryStyle) {
+        topReaderStatusBar.batteryStyle != config.batteryStyle || topReaderStatusBar.centered != config.centered ||
+        topReaderStatusBar.separator != config.separator) {
       legacyXtcTopUsesBottom = 0;
     }
     topReaderStatusBar = config;

@@ -1616,6 +1616,8 @@ void CrossPointWebServer::handleGetStatusBars() const {
   labels["progressBar"] = tr(STR_PROGRESS_BAR);
   labels["thickness"] = tr(STR_PROGRESS_BAR_THICKNESS);
   labels["hidden"] = tr(STR_HIDE);
+  labels["centered"] = tr(STR_CENTER_STATUS_BAR);
+  labels["separator"] = tr(STR_SEPARATOR);
   labels["textSize"] = tr(STR_STATUS_BAR_TEXT_SIZE);
   labels["xtcMode"] = tr(STR_XTC_STATUS_BAR);
   labels["preview"] = tr(STR_PREVIEW);
@@ -1654,6 +1656,10 @@ void CrossPointWebServer::handleGetStatusBars() const {
   addLabels("thicknesses",
             {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK});
   addLabels("hideOptions", {StrId::STR_OFF, StrId::STR_ON});
+  JsonArray separators = doc["separators"].to<JsonArray>();
+  for (uint8_t i = 0; i < static_cast<uint8_t>(ReaderStatusBarSeparator::Count); ++i) {
+    separators.add(readerStatusBarSeparatorGlyph(static_cast<ReaderStatusBarSeparator>(i)));
+  }
   addLabels("textSizes", {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE});
   addLabels("xtcModes", {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP, StrId::STR_STATUS_BAR_BOTH});
 
@@ -1695,6 +1701,8 @@ void CrossPointWebServer::handlePostStatusBars() {
     if (previousTop.slots != bars.top.slots || previousTop.percentageFormat != bars.top.percentageFormat ||
         previousTop.progressBar != bars.top.progressBar ||
         previousTop.progressBarThickness != bars.top.progressBarThickness ||
+        (!doc["top"]["centered"].isUnbound() && previousTop.centered != bars.top.centered) ||
+        (!doc["top"]["separator"].isUnbound() && previousTop.separator != bars.top.separator) ||
         (!doc["top"]["battery"].isUnbound() && previousTop.batteryStyle != bars.top.batteryStyle) ||
         SETTINGS.xtcStatusBarMode != bars.xtcMode) {
       SETTINGS.legacyXtcTopUsesBottom = 0;
@@ -1702,6 +1710,10 @@ void CrossPointWebServer::handlePostStatusBars() {
     // Older clients have no Hide field; editing slots must retain visibility.
     if (doc["top"]["hidden"].isUnbound()) bars.top.hidden = previousTop.hidden;
     if (doc["bottom"]["hidden"].isUnbound()) bars.bottom.hidden = SETTINGS.bottomReaderStatusBar.hidden;
+    if (doc["top"]["centered"].isUnbound()) bars.top.centered = previousTop.centered;
+    if (doc["bottom"]["centered"].isUnbound()) bars.bottom.centered = SETTINGS.bottomReaderStatusBar.centered;
+    if (doc["top"]["separator"].isUnbound()) bars.top.separator = previousTop.separator;
+    if (doc["bottom"]["separator"].isUnbound()) bars.bottom.separator = SETTINGS.bottomReaderStatusBar.separator;
     if (doc["top"]["battery"].isUnbound()) bars.top.batteryStyle = previousTop.batteryStyle;
     if (doc["bottom"]["battery"].isUnbound()) bars.bottom.batteryStyle = SETTINGS.bottomReaderStatusBar.batteryStyle;
     SETTINGS.topReaderStatusBar = bars.top;

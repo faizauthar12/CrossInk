@@ -644,6 +644,8 @@ STR_SERVER_PROGRESS_ONLY: "Этот сервер синхронизирует т
 STR_NOT_SUPPORTED: "Не поддерживается"
 STR_SWAP_LIBRARY_FILE_BROWSER: "Поменять библиотеку/файлы"
 STR_STATUS_BAR: "Строка состояния"
+STR_CENTER_STATUS_BAR: "Строка состояния по центру"
+STR_SEPARATOR: "Разделитель"
 STR_DATE: "Дата"
 STR_MONTH_JAN_SHORT: "янв."
 STR_MONTH_FEB_SHORT: "февр."
