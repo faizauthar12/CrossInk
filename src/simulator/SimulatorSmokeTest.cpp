@@ -2132,6 +2132,51 @@ class SimulatorSmokeTest {
     JsonDocument original;
     SETTINGS.toJson(original);
     SETTINGS.menuNavigation = CrossPointSettings::MENU_NAV_DIRECTIONAL;
+    {
+      std::fill(std::begin(SETTINGS.quickActionSlots), std::end(SETTINGS.quickActionSlots), CrossPointSettings::IGNORE);
+      RenderLock lock;
+      QuickActionsActivity editor(renderer, mappedInputManager);
+      editor.onEnter();
+      const auto press = [&](MappedInputManager::Button button) {
+        mappedInputManager.simulatorInjectPress(button);
+        editor.loop();
+        mappedInputManager.simulatorClearInputFrame();
+        mappedInputManager.simulatorInjectRelease(button);
+        editor.loop();
+        mappedInputManager.simulatorClearInputFrame();
+        mappedInputManager.update();
+      };
+      const auto down = mappedInputManager.menuButton(MappedInputManager::Button::Down);
+      press(down);
+      press(MappedInputManager::Button::Confirm);
+      bool found = false;
+      for (const auto action : QuickActions::shortcutActionOrder) {
+        if (!QuickActions::isQuickActionSlotActionAvailable(action)) continue;
+        if (action == CrossPointSettings::ROTATE_FLIP) {
+          found = true;
+          break;
+        }
+        press(down);
+      }
+      if (!found) fail("Rotate Page 180 missing from Quick Action slots");
+      editor.render(std::move(lock));
+      captureStatusBarScreen("rotate-quick-action-picker");
+      press(MappedInputManager::Button::Confirm);
+      editor.render(std::move(lock));
+      captureStatusBarScreen("rotate-quick-action-assigned");
+      // The overview starts on Shortcut; move past all five slots to Save.
+      for (int i = 0; i < 6; ++i) press(down);
+      press(MappedInputManager::Button::Confirm);
+      editor.onExit();
+      if (SETTINGS.quickActionSlots[0] != CrossPointSettings::ROTATE_FLIP)
+        fail("Quick Action picker did not save Rotate Page 180");
+      JsonDocument saved;
+      SETTINGS.toJson(saved);
+      SETTINGS.quickActionSlots[0] = CrossPointSettings::IGNORE;
+      SETTINGS.fromJson(saved.as<JsonVariantConst>());
+      if (SETTINGS.quickActionSlots[0] != CrossPointSettings::ROTATE_FLIP)
+        fail("Rotate Page 180 Quick Action did not survive reload");
+    }
     const auto all = getSettingsList();
     const auto controls = buildControlsSettingsParentList(all);
     const auto verify = [&](const SettingInfo& setting, const uint8_t raw) {
@@ -2223,6 +2268,12 @@ class SimulatorSmokeTest {
       else
         reader = std::make_unique<EpubReaderActivity>(renderer, mappedInputManager, nullptr,
                                                       EpubReaderActivity::BookReaderSettingsData{}, 0);
+      if (!reader->handleShortcutAction(CrossPointSettings::QUICK_ACTIONS) || !reader->blocksGlobalInput())
+        fail("Reader filtered out the configured Rotate Page 180 Quick Action");
+      mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Back);
+      reader->loop();
+      mappedInputManager.simulatorClearInputFrame();
+      if (reader->blocksGlobalInput()) fail("Could not dismiss Rotate Page 180 Quick Action popup");
       for (uint8_t orientation = 0; orientation < CrossPointSettings::ORIENTATION_COUNT; ++orientation) {
         SETTINGS.orientation = orientation;
         ReaderUtils::applyOrientation(renderer, orientation);
