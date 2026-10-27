@@ -124,6 +124,8 @@
 - Reserve the retained TLS input buffer after sending bulk HTTPS requests, including OPDS book downloads, to avoid later full-record allocation failures when a server ignores the small-record request (adapted from Eszter Schuffert, FreeInk SDK #154 and #155 via CrossPoint #4167).
 - Use full refreshes on SSD2677 Sticky displays when previous-frame memory is unavailable, preventing stale black pixels.
 
+- Reduce memory used by OPDS book feeds with long descriptions, release partial catalogs after failed requests, and stop transfers promptly when parsing fails.
+
 ### Changed
 
 - SD fonts containing both BMP and supplementary Unicode ranges use less resident lookup-table memory, and TTF fonts validate faster while preserving font integrity checks.
