@@ -91,6 +91,9 @@ class HttpDownloader {
     // writing anything if the SD card cannot hold the file. The first check
     // can scan the whole FAT, so leave it off for small files.
     bool checkFreeSpace = false;
+    // Opt in only for bulk WOLFSSL transfers. Reserve after request text is
+    // freed; other transports and SDK builds without retention ignore this.
+    bool reserveFullRecord = false;
     // OPDS EPUBs only: choose the final response's safe Content-Disposition
     // basename, falling back to destPath. Requires stageAsPart. A collision
     // returns FILE_EXISTS before touching the partial or complete book.

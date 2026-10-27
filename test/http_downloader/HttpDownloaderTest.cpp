@@ -14,6 +14,7 @@ class HttpDownloaderTest : public testing::TestWithParam<HttpDownloader::Transpo
     replies.clear();
     requests.clear();
     requestUrls.clear();
+    recordReservations.clear();
     nextReply = 0;
     failWrite = failSync = false;
     cardCapacity = cardUsedBytes = 0;
@@ -878,4 +879,31 @@ TEST_P(HttpDownloaderTest, PluginHeadersStayOnTheOriginalOrigin) {
   EXPECT_EQ(requests[2].count("Authorization"), 0u);
   EXPECT_EQ(requests[2].count("X-Api-Key"), 0u);
   EXPECT_EQ(files["/book"], "abc");
+}
+
+TEST_P(HttpDownloaderTest, BulkReservationFollowsRedirectAndResumeAttempts) {
+  replies = {{302, "", 0, "", true, "https://example.com/book"},
+             {200, "abc", 6, "", false},
+             {206, "def", 3, "bytes 3-5/6", true}};
+  replies[1].etag = replies[2].etag = "\"book-v1\"";
+  HttpDownloader::DownloadOptions o;
+  o.transport = GetParam();
+  o.reserveFullRecord = true;
+  o.stageAsPart = true;
+  EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/start", "/book.epub", nullptr, nullptr, "", "", o),
+            HttpDownloader::OK);
+  EXPECT_EQ(files["/book.epub"], "abcdef");
+  if (GetParam() == HttpDownloader::Transport::WOLFSSL)
+    EXPECT_EQ(recordReservations, (std::vector<bool>{true, true, true}));
+  else
+    EXPECT_TRUE(recordReservations.empty());
+}
+
+TEST_P(HttpDownloaderTest, SmallRequestsDoNotReserveTlsRecordsByDefault) {
+  replies = {{200, "abc", 3}};
+  HttpDownloader::DownloadOptions o;
+  o.transport = GetParam();
+  EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book.epub", nullptr, nullptr, "", "", o),
+            HttpDownloader::OK);
+  if (GetParam() == HttpDownloader::Transport::WOLFSSL) EXPECT_EQ(recordReservations, (std::vector<bool>{false}));
 }

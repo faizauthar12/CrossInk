@@ -231,6 +231,14 @@ fresh deck. Deleting `/.crosspoint/sleep-image-index/` resets indexes and decks.
 
 ## `/.crosspoint/library.idx`
 
+### Version 8
+
+Version 8 keeps the version 7 layout and rebuilds the index to exclude
+`XTCache` and `System Volume Information` directories, regardless of FAT name
+casing. Version 7 remains readable for reconciliation, preserving arrival
+history and reusable metadata. Rebuilding never deletes the source books or
+system directories.
+
 ### Version 7
 
 Version 7 preserves the version 6 layout but invalidates extracted metadata to

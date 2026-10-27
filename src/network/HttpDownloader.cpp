@@ -262,6 +262,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
 
     freeink::SecureHttpClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
+    http.setReserveFullRecord(sink.options->reserveFullRecord);
     // SecureNet does not yet expose ESP-IDF's CA bundle. This matches the
     // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
