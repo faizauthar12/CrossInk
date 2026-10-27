@@ -723,6 +723,8 @@ STR_SWAP_LIBRARY_FILE_BROWSER: "تبديل المكتبة/متصفح الملف�
 STR_STATUS_BAR: "شريط الحالة"
 STR_CENTER_STATUS_BAR: "توسيط شريط الحالة"
 STR_SEPARATOR: "الفاصل"
+STR_OPTIONS: "الخيارات"
+STR_LAYOUT: "التخطيط"
 STR_DATE: "التاريخ"
 STR_MONTH_JAN_SHORT: "يناير"
 STR_MONTH_FEB_SHORT: "فبراير"

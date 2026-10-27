@@ -632,6 +632,8 @@ STR_SWAP_LIBRARY_FILE_BROWSER: "Поміняти бібліотеку/файли
 STR_STATUS_BAR: "Рядок стану"
 STR_CENTER_STATUS_BAR: "Рядок стану по центру"
 STR_SEPARATOR: "Роздільник"
+STR_OPTIONS: "Параметри"
+STR_LAYOUT: "Макет"
 STR_DATE: "Дата"
 STR_MONTH_JAN_SHORT: "січ."
 STR_MONTH_FEB_SHORT: "лют."

@@ -472,10 +472,12 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     } else if (displayContext && i == DISPLAY_BATTERY_ROW) {
       row.label = tr(STR_BATTERY);
       row.value = batteryStyleLabel(SETTINGS.displayStatusBar.batteryStyle);
+      row.sectionHeading = tr(STR_OPTIONS);
     } else if (displayContext) {
       row.label = i == 0 ? tr(STR_DIR_LEFT) : i == 1 ? tr(STR_CENTER) : tr(STR_DIR_RIGHT);
       values[i] = itemLabel(SETTINGS.displayStatusBar.slots[i]);
       row.value = values[i].c_str();
+      if (i == 0) row.sectionHeading = tr(STR_LAYOUT);
     } else if (view == View::Root) {
       row.label = I18N.get(rootLabels[i]);
       row.value = i == 2   ? xtcModeLabel(SETTINGS.xtcStatusBarMode)
@@ -500,6 +502,7 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       } else if (item == BATTERY_STYLE) {
         row.label = tr(STR_BATTERY);
         row.value = batteryStyleLabel(config.batteryStyle);
+        row.sectionHeading = tr(STR_OPTIONS);
       } else if (item == PERCENTAGE_FORMAT) {
         row.label = tr(STR_PERCENTAGE_FORMAT);
         row.value = I18N.get(percentageFormatNames[config.percentageFormat]);
@@ -540,108 +543,15 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   visibleRows = listNav.trusts(visibleItemCount) ? listNav.pageRowsFor(visibleItemCount) : std::max<int>(rows, 1);
   topIndex = scrollListBy(topIndex, 0, visibleRows, visibleItemCount);
   props.topIndex = static_cast<uint16_t>(topIndex);
-  const auto renderScrollingList = [&] {
-    if (listNav.selected.load() != selectedIndex) listNav.requestSelection(selectedIndex);
-    listNav.top = topIndex;
-    screen.syncListViewport(listNav, props, visibleItemCount);
-    screen.list(props);
+  if (listNav.selected.load() != selectedIndex) listNav.requestSelection(selectedIndex);
+  listNav.top = topIndex;
+  screen.syncListViewport(listNav, props, visibleItemCount);
+  screen.list(props);
 #ifdef SIMULATOR
-    simulatorSelectedRowVisible = selectedIndex >= listNav.top && selectedIndex < listNav.top + listNav.drawnRows;
+  simulatorSelectedRowVisible = selectedIndex >= listNav.top && selectedIndex < listNav.top + listNav.drawnRows;
 #endif
-    visibleRows = listNav.pageRowsFor(visibleItemCount);
-    topIndex = listNav.top;
-  };
-  if (displayContext || view == View::Root) {
-    renderScrollingList();
-    return;
-  }
-
-  // Keep the separator aligned with FreeInkUI's variable-height rows when the list scrolls or wraps.
-  const auto resolvedProps = screen.resolveListProps(props);
-  const auto body = screen.body();
-  const int dividerItem = SLOT_RIGHT_3;
-  const int dividerIndex = [&] {
-    for (int i = topIndex; i < visibleItemCount; ++i) {
-      if (i == dividerItem) return i;
-    }
-    return -1;
-  }();
-  if (dividerIndex < topIndex) {
-    renderScrollingList();
-    return;
-  }
-
-  fui::ListProps layoutProps = resolvedProps;
-  layoutProps.scrollIndicator = false;
-  int16_t rowWidth = body.width;
-  if (layoutProps.rowInset > 0) rowWidth = static_cast<int16_t>(rowWidth - layoutProps.rowInset * 2);
-  const int16_t headerLineHeight = screen.target().lineHeight(layoutProps.headerText.font);
-  const int16_t headerHeight =
-      layoutProps.headerRowHeight > 0 ? layoutProps.headerRowHeight : static_cast<int16_t>(headerLineHeight + 4);
-  int16_t dividerY = body.y;
-  for (int i = topIndex; i <= dividerIndex; ++i) {
-    const auto& item = items[static_cast<size_t>(i)];
-    if (item.sectionHeading != nullptr && item.sectionHeading[0] != '\0') {
-      if (i != topIndex) dividerY = static_cast<int16_t>(dividerY + layoutProps.sectionGap);
-      dividerY = static_cast<int16_t>(dividerY + headerHeight + layoutProps.rowGap);
-    }
-    dividerY = static_cast<int16_t>(dividerY +
-                                    fui::measureListRow(screen.target(), nullptr, rowWidth, layoutProps, item).height);
-    if (i != dividerIndex) dividerY = static_cast<int16_t>(dividerY + layoutProps.rowGap);
-  }
-
-  int16_t afterDividerHeight = 0;
-  for (int i = dividerIndex + 1; i < visibleItemCount; ++i) {
-    const auto& item = items[static_cast<size_t>(i)];
-    afterDividerHeight = static_cast<int16_t>(
-        afterDividerHeight + fui::measureListRow(screen.target(), nullptr, rowWidth, layoutProps, item).height);
-    if (i + 1 < visibleItemCount) afterDividerHeight = static_cast<int16_t>(afterDividerHeight + layoutProps.rowGap);
-  }
-  const int16_t availableAfterDivider = static_cast<int16_t>(body.bottom() - dividerY);
-  const int16_t maxDividerMargin = static_cast<int16_t>((availableAfterDivider - afterDividerHeight - 1) / 2);
-  if (maxDividerMargin < 0) {
-    // On compact screens, keep every option in one scrollable list instead of
-    // splitting off a segment that cannot fit its first row.
-    renderScrollingList();
-    return;
-  }
-  const int16_t dividerMargin = std::min(layoutProps.sectionGap, maxDividerMargin);
-
-  fui::ListProps beforeDivider = props;
-  beforeDivider.items = items.data() + topIndex;
-  beforeDivider.count = static_cast<uint16_t>(dividerIndex - topIndex + 1);
-  beforeDivider.topIndex = 0;
-  beforeDivider.selectedIndex =
-      selectedIndex >= topIndex && selectedIndex <= dividerIndex ? static_cast<int16_t>(selectedIndex - topIndex) : -1;
-  beforeDivider.scrollIndicator = false;
-  screen.list(beforeDivider, static_cast<int16_t>(dividerY - body.y));
-
-  screen.spacer(dividerMargin);
-  const auto dividerBody = screen.body();
-  screen.target().fill(fui::Rect{dividerBody.x, dividerBody.y, dividerBody.width, 1},
-                       fui::Paint::solid(fui::Color::Black));
-  screen.spacer(1);
-  screen.spacer(dividerMargin);
-
-  fui::ListProps afterDivider = props;
-  afterDivider.items = items.data() + dividerIndex + 1;
-  afterDivider.count = static_cast<uint16_t>(visibleItemCount - dividerIndex - 1);
-  afterDivider.topIndex = 0;
-  afterDivider.selectedIndex =
-      selectedIndex > dividerIndex ? static_cast<int16_t>(selectedIndex - dividerIndex - 1) : -1;
-  afterDivider.scrollIndicator = false;
-  screen.list(afterDivider);
-#ifdef SIMULATOR
-  simulatorSelectedRowVisible = selectedIndex >= topIndex;
-#endif
-
-  // The split sections share one scroll position, so keep one indicator for the full list.
-  if (resolvedProps.scrollIndicator) {
-    fui::drawListScrollIndicator(screen.target(), body, static_cast<uint32_t>(visibleItemCount),
-                                 static_cast<uint32_t>(visibleItemCount - topIndex), static_cast<uint32_t>(topIndex),
-                                 resolvedProps.scrollIndicatorWidth, resolvedProps.scrollIndicatorSide,
-                                 resolvedProps.scrollIndicatorInset);
-  }
+  visibleRows = listNav.pageRowsFor(visibleItemCount);
+  topIndex = listNav.top;
 }
 
 void StatusBarSettingsActivity::render(RenderLock&&) {
