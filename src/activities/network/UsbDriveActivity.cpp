@@ -9,6 +9,7 @@
 #include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
+#include "activities/boot_sleep/ImageFolderIndex.h"
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -38,6 +39,9 @@ void UsbDriveActivity::onEnter() {
 #ifndef SIMULATOR
   // The host can replace fonts without going through firmware file APIs.
   sdFontSystem.markRegistryDirty();
+  // Invalidate while FAT is still mounted. USB writes bypass firmware hooks,
+  // and endUsbDrive() leaves the filesystem detached until the reboot.
+  ImageFolderIndex::invalidate();
   if (!Storage.beginUsbDrive()) {
     LOG_ERR("USB", "Unable to start USB Drive");
     preparing = false;

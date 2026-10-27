@@ -119,35 +119,43 @@ keeps at most 24 modified family profiles to bound RAM use while settings are op
 
 ## `/.crosspoint/sleep-image-index/<directory-hash>-{bmp,all}.idx`
 
-### Version 1
+### Version 2
 
 `ImageFolderIndex` (`src/activities/boot_sleep/ImageFolderIndex.{h,cpp}`) keeps
 a compact, rebuildable index per indexed folder. It backs both the sleep-image
 folder and the boot-screen folder (`/bootscreen` or `/.bootscreen`); the
 directory name predates the boot-screen use and was kept as-is so existing
-sleep caches aren't orphaned by an unrelated rename. The index avoids walking
-a folder on every selection while using only one fixed-size record at a time
-in RAM. `bmp` contains BMP files and `all` contains BMP and PNG files (sleep's
-Page Overlay mode only; the boot screen is BMP-only and always uses a `bmp`
-index). The `validated` header flag means BMP headers were checked while
-rebuilding after a failed render.
+sleep caches aren't orphaned by an unrelated rename. The index uses only one
+fixed-size filename record at a time in RAM. `bmp` contains BMP files and `all`
+contains BMP and PNG files (sleep's Page Overlay mode only; the boot screen is
+BMP-only and always uses a `bmp` index). The `validated` header flag means BMP
+headers were checked while rebuilding after a failed render.
 
-The index is disposable: a missing, malformed, or stale selected entry causes
-one rebuild and then the caller falls back to its directory scan. File
-transfer, file-browser, and preferred-folder changes invalidate affected
-indexes via `ImageFolderIndex::invalidateForPath()`. Files added or changed
-directly on the SD card have no notification path; they are picked up when a
-cached entry is found missing or when an index is otherwise rebuilt.
+Version 2 appends an ordered folder fingerprint to the packed header; version 1
+indexes rebuild automatically. On each sleep-image selection, the firmware walks
+the folder's direct children and fingerprints eligible filenames, file sizes and
+modification times. Additions, deletions, renames, replacements and changes to
+directory order refresh the index on the next selection, including direct SD
+copies. This costs a metadata walk per sleep, without decoding every image.
+Boot-screen selection retains its existing cached/random selection policy.
+
+The index is disposable. File-transfer, file-browser and preferred-folder changes
+invalidate indexes; USB Drive invalidates them before detaching the filesystem
+for raw host access (normal filesystem access resumes after reboot).
+Invalidation preserves the separate deck checkpoints for unchanged collections.
+If index/selection I/O or allocation fails, sleep retains its older scan/random fallback;
+the full-deck guarantee requires a writable cache and renderable images.
 
 ```c++
 struct ImageFolderIndexHeader {
     char magic[4];       // "CSIX"
-    u8 version;          // 1
+    u8 version;          // 2
     u8 flags;            // bit 0: BMP+PNG, bit 1: BMP headers validated
     u16 pathLength;
     u16 recordCount;
     u16 recordSize;      // sizeof(ImageFolderIndexRecord)
     u32 recordsOffset;   // sizeof(header) + pathLength
+    u64 fingerprint;     // ordered eligible filename/size/modification-time hash
     char directory[pathLength];
 };
 
@@ -158,6 +166,49 @@ struct ImageFolderIndexRecord {
     char name[256];      // zero-padded UTF-8 filename, max 255 bytes
 };
 ```
+
+### Sleep shuffled deck (`<index-path>.deck`), version 1
+
+Sleep images are drawn uniformly from the remaining images, which is equivalent
+to shuffling a deck and dealing every card once. A packed checkpoint stores one
+bit per index record (least significant bit first; 1 = attempted/skipped) plus this header:
+
+```c++
+struct SleepImageDeckHeader {
+    char magic[4];       // "CSDK"
+    u8 version;          // 1
+    u64 fingerprint;     // index fingerprint
+    u16 count;           // number of indexed candidates
+    u16 lastIndex;       // last displayed image, or 65535 before any display
+    u8 hasDisplayed;     // a successful display in the current round (0 or 1)
+    u64 checksum;        // FNV-1a over preceding header bytes and bitmap
+    u8 drawn[(count + 7) / 8];
+};
+```
+
+Numeric fields are little-endian, without padding. The checkpoint survives deep
+sleep and restart. Once all cards are drawn the bitmap clears; with more than one
+eligible image, the first successful display excludes the previous round's last
+displayed image, even if earlier attempts in the new round failed. Changes to the
+collection start a fresh deck; normal BMP and Page Overlay collections have
+independent checkpoints. Hidden files and subfolders are excluded, as before.
+Sleep retries retain the same index positions and deck: BMP validation and the
+BMP-only retry after a PNG failure filter the remaining cards, without resetting
+the round. Validation skips all known-malformed BMPs for the round; temporary
+BMP-only filtering leaves untried PNGs available. An exhausted retry subset does
+not bypass the deck through a random
+scan. The existing root/default screen remains available when no retry can draw.
+
+The bitmap needs `ceil(count / 8)` bytes of temporary heap (125 bytes for 1,000
+images, capped at 8,192 bytes for 65,535 images), freed before rendering. Retry
+filtering temporarily uses a second bitmap of the same size. After each render
+attempt, the drawn bit is saved; only a successful render updates the last
+displayed index. This consumes failed images without falsely counting them as
+displayed for boundary protection. Each attempt writes a synced temporary
+checkpoint and publishes it through the shared atomic
+file helper, retaining `.bak` until publication succeeds. A remaining backup is
+recovered before reading; a malformed or checksum-invalid checkpoint starts a
+fresh deck. Deleting `/.crosspoint/sleep-image-index/` resets indexes and decks.
 
 ## `/.crosspoint/library.idx`
 

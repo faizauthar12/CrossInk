@@ -316,6 +316,7 @@ enum class SleepImageMode : uint8_t { Custom, Overlay };
 struct SleepImageSelection {
   std::string path;
   bool isPng = false;
+  ImageFolderIndex::Selection rotation;
 };
 
 bool isBmpSleepImagePath(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
@@ -403,22 +404,24 @@ bool selectPinnedSleepImage(SleepImageMode mode, SleepImageSelection& selection)
 
 bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection, bool validateBmpHeaders = false,
                             bool bmpOnly = false) {
+  selection.rotation = {};
   FsFile dir;
   std::string sleepDir;
   if (!resolvePreferredSleepDirectory(sleepDir)) return false;
 
   const bool allowPng = mode == SleepImageMode::Overlay && !bmpOnly;
   ImageFolderIndex::Selection indexedSelection;
-  if (ImageFolderIndex::select(sleepDir, allowPng, validateBmpHeaders, APP_STATE.recentSleepImages,
-                               CrossPointState::SLEEP_RECENT_COUNT, APP_STATE.recentSleepPos, APP_STATE.recentSleepFill,
-                               std::min(APP_STATE.recentSleepFill, CrossPointState::SLEEP_RECENT_COUNT),
-                               indexedSelection)) {
+  if (ImageFolderIndex::selectShuffled(sleepDir, mode == SleepImageMode::Overlay, validateBmpHeaders, indexedSelection,
+                                       bmpOnly)) {
     selection.path = std::move(indexedSelection.path);
     selection.isPng = indexedSelection.isPng;
     APP_STATE.pushRecentSleep(indexedSelection.index);
     APP_STATE.saveToFile();
+    selection.rotation = std::move(indexedSelection);
     return true;
   }
+  // An exhausted retry subset must not bypass the deck through a random scan.
+  if (indexedSelection.noEligibleRemaining) return false;
 
   // Cache creation is best-effort. Reopen the directory only for the legacy
   // reservoir fallback when the cache could not be loaded or written.
@@ -621,7 +624,7 @@ bool SleepActivity::rendersBeforeExit() const {
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
-  const auto tryRenderSelection = [this](const SleepImageSelection& selection) {
+  const auto renderSelection = [this](const SleepImageSelection& selection) {
     FsFile file;
     if (!Storage.openFileForRead("SLP", selection.path, file)) {
       LOG_ERR("SLP", "Failed to open custom sleep image: %s", selection.path.c_str());
@@ -644,6 +647,12 @@ void SleepActivity::renderCustomSleepScreen() const {
     const bool success = renderBitmapSleepScreen(bitmap);
     file.close();
     return success;
+  };
+
+  const auto tryRenderSelection = [&](const SleepImageSelection& image) {
+    const bool displayed = renderSelection(image);
+    ImageFolderIndex::recordSleepAttempt(image.rotation, displayed);
+    return displayed;
   };
 
   SleepImageSelection selection;
@@ -1207,6 +1216,7 @@ void SleepActivity::renderOverlaySleepScreen() const {
     const OverlayDrawResult result = image.isPng ? tryDrawPngOverlay(image.path) : tryDrawOverlay(image.path);
     overlayDrawn = result == OverlayDrawResult::Drawn;
     overlayCandidateFailed = overlayCandidateFailed || result == OverlayDrawResult::Failed;
+    ImageFolderIndex::recordSleepAttempt(image.rotation, overlayDrawn);
   };
 
   if (selectPinnedSleepImage(SleepImageMode::Overlay, selection)) {

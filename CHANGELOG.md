@@ -118,6 +118,7 @@
 - Preserve reading stats before silent reader restarts, and keep the live session available when a restart save fails.
 - Show EPUB and XTC page turns before periodic reading-stat saves, reducing SD-card pauses on button and touch devices. Defer periodic checkpoints until page input and rendering have been quiet for one second.
 - Keep words below large decorative first letters intact when EPUB text returns to full width; existing book layouts rebuild automatically (adapted from Uri Tauber, CrossPoint #4173).
+- Discover newly added sleep images, including after SD-card copies and USB Drive transfers, and shuffle through every image before repeating. Keep the rotation across sleep and restart, with no immediate repeat between rounds.
 
 ### Changed
 
