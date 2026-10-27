@@ -1976,9 +1976,11 @@ void loop() {
     }
   }
 
-  if (!activityManager.isReaderActivity()) {
-    RenderLock lock;
-    pluginevents::pollOnline();
+  // Background delivery must not hold up text entry or wait for a screen
+  // refresh after input was sampled: a stale touch-down can become a false hold.
+  if (!activityManager.isReaderActivity() && !activityManager.hasActivityNamed("KeyboardEntry")) {
+    RenderLock lock(RenderLock::Mode::Try);
+    if (lock.ownsLock()) pluginevents::pollOnline();
   }
   const unsigned long activityStartTime = millis();
   activityManager.loop();

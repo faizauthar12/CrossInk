@@ -123,7 +123,6 @@
 - Keep system-folder support files out of Library, including FAT name casing variants, while preserving ordinary TXT and Markdown books and rebuilding existing indexes without deleting source files (adapted from Uri Tauber, CrossPoint #4184).
 - Reserve the retained TLS input buffer after sending bulk HTTPS requests, including OPDS book downloads, to avoid later full-record allocation failures when a server ignores the small-record request (adapted from Eszter Schuffert, FreeInk SDK #154 and #155 via CrossPoint #4167).
 - Use full refreshes on SSD2677 Sticky displays when previous-frame memory is unavailable, preventing stale black pixels.
-
 - Reduce memory used by OPDS book feeds with long descriptions, release partial catalogs after failed requests, and stop transfers promptly when parsing fails.
 
 ### Changed
