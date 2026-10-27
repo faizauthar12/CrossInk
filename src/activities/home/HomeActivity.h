@@ -31,6 +31,7 @@ class HomeActivity final : public Activity {
 
  private:
 #ifdef SIMULATOR
+  friend struct BookmarkListSmokeTest;
   friend struct PluginCatalogSmokeTest;
 #endif
   ButtonNavigator buttonNavigator;

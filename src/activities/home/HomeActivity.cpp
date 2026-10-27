@@ -2405,6 +2405,11 @@ void HomeActivity::onReadingStatsOpen() {
 }
 
 void HomeActivity::onSavedItemsOpen() {
-  startActivityForResult(std::make_unique<SavedItemsHomeActivity>(renderer, mappedInput),
-                         [this](const ActivityResult&) { requestUpdate(); });
+  auto savedItems = makeUniqueNoThrow<SavedItemsHomeActivity>(renderer, mappedInput);
+  if (!savedItems) {
+    LOG_ERR("HOME", "OOM: saved items activity (%u bytes)", static_cast<unsigned>(sizeof(SavedItemsHomeActivity)));
+    requestUpdate();
+    return;
+  }
+  startActivityForResult(std::move(savedItems), [this](const ActivityResult&) { requestUpdate(); });
 }

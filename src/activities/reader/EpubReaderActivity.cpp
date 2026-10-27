@@ -4493,8 +4493,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
         }
         const auto addResult =
             BOOKMARKS.addBookmark(spine, progress, bookmarkPageCount, chapterTitle, paragraphIndex, snippet);
-        bookmarkFeedbackType = (addResult == BookmarkStore::AddResult::Added) ? BookmarkFeedbackType::Added
-                                                                              : BookmarkFeedbackType::LimitReached;
+        bookmarkFeedbackType = addResult == BookmarkStore::AddResult::Added ? BookmarkFeedbackType::Added
+                               : addResult == BookmarkStore::AddResult::LimitReached
+                                   ? BookmarkFeedbackType::LimitReached
+                                   : BookmarkFeedbackType::Unavailable;
       }
       pendingBookmarkFeedback = true;
       bookmarkFeedbackShowTime = millis();
@@ -4502,47 +4504,52 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       break;
     }
     case EpubReaderMenuAction::VIEW_BOOKMARKS: {
+      auto bookmarkList = makeUniqueNoThrow<EpubReaderBookmarkListActivity>(renderer, mappedInput);
+      if (!bookmarkList) {
+        LOG_ERR("ERS", "OOM: bookmark list activity (%u bytes)",
+                static_cast<unsigned>(sizeof(EpubReaderBookmarkListActivity)));
+        requestUpdate();
+        break;
+      }
       pauseReadingPaceTimer("bookmark_list");
-      startActivityForResult(
-          std::make_unique<EpubReaderBookmarkListActivity>(renderer, mappedInput, BOOKMARKS.getBookmarks()),
-          [this, returnToReaderMenu](const ActivityResult& result) {
-            if (!result.isCancelled) {
-              const auto& bm = std::get<BookmarkResult>(result.data);
-              RenderLock lock(*this);
-              clearFootnotePreviewState();
-              if (section && currentSpineIndex == bm.spineIndex) {
-                bool resolved = false;
-                const uint16_t fallbackPage =
-                    pageFromStoredProgress(bm.progress, static_cast<uint16_t>(section->estimatedTotalPages()));
-                if (bm.paragraphIndex != UINT16_MAX) {
-                  section->currentPage = resolveParagraphJumpPage(*section, bm.paragraphIndex, fallbackPage);
-                  resolved = true;
-                  LOG_DBG("ERS", "Resolved bookmark paragraph %u to page %d", bm.paragraphIndex, section->currentPage);
-                }
-                if (!resolved) {
-                  section->currentPage = fallbackPage;
-                }
-                nextPageNumber = section->currentPage;
-                pendingPercentJump = false;
-                pendingParagraphIndex = UINT16_MAX;
-              } else {
-                currentSpineIndex = bm.spineIndex;
-                pendingSpineProgress = bm.progress;
-                pendingParagraphIndex = bm.paragraphIndex;
-                pendingPercentJump = true;
-                section.reset();
-              }
-              armReadingPaceWarmup("bookmark_jump");
-              pauseReadingPaceTimer("bookmark_jump");
-            } else {
-              resumeReadingPaceTimer("bookmark_list_cancel");
-              if (returnToReaderMenu) {
-                openReaderMenu();
-                return;
-              }
+      startActivityForResult(std::move(bookmarkList), [this, returnToReaderMenu](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          const auto& bm = std::get<BookmarkResult>(result.data);
+          RenderLock lock(*this);
+          clearFootnotePreviewState();
+          if (section && currentSpineIndex == bm.spineIndex) {
+            bool resolved = false;
+            const uint16_t fallbackPage =
+                pageFromStoredProgress(bm.progress, static_cast<uint16_t>(section->estimatedTotalPages()));
+            if (bm.paragraphIndex != UINT16_MAX) {
+              section->currentPage = resolveParagraphJumpPage(*section, bm.paragraphIndex, fallbackPage);
+              resolved = true;
+              LOG_DBG("ERS", "Resolved bookmark paragraph %u to page %d", bm.paragraphIndex, section->currentPage);
             }
-            requestUpdate();
-          });
+            if (!resolved) {
+              section->currentPage = fallbackPage;
+            }
+            nextPageNumber = section->currentPage;
+            pendingPercentJump = false;
+            pendingParagraphIndex = UINT16_MAX;
+          } else {
+            currentSpineIndex = bm.spineIndex;
+            pendingSpineProgress = bm.progress;
+            pendingParagraphIndex = bm.paragraphIndex;
+            pendingPercentJump = true;
+            section.reset();
+          }
+          armReadingPaceWarmup("bookmark_jump");
+          pauseReadingPaceTimer("bookmark_jump");
+        } else {
+          resumeReadingPaceTimer("bookmark_list_cancel");
+          if (returnToReaderMenu) {
+            openReaderMenu();
+            return;
+          }
+        }
+        requestUpdate();
+      });
       break;
     }
     case EpubReaderMenuAction::VIEW_CLIPPINGS: {
@@ -7742,6 +7749,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
         break;
       case BookmarkFeedbackType::LimitReached:
         msg = tr(STR_BOOKMARK_LIMIT_REACHED);
+        break;
+      case BookmarkFeedbackType::Unavailable:
+        msg = tr(STR_UNAVAILABLE);
         break;
     }
     drawToastBuffer(renderer, msg);

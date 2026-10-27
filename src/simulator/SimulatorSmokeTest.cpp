@@ -21,6 +21,7 @@
 
 #include "AssetDownloadSmokeTest.h"
 #include "BookFontSystem.h"
+#include "BookmarkListSmokeTest.h"
 #include "ClippingSelectionSmokeTest.h"
 #include "OpdsCatalogSmokeTest.h"
 #include "PluginSmokeTest.h"
@@ -4839,12 +4840,11 @@ class SimulatorSmokeTest {
       case 14: {
         RenderLock lock;
         captureStatusBarScreen("metadata-chapters-large");
-        Bookmark bookmark{};
-        std::strcpy(bookmark.chapterTitle, "Chapter 一 Հայերեն");
-        std::strcpy(bookmark.snippet, "Latin title 一 Հայերեն");
-        bookmark.progress = 0.5f;
-        activityManager.replaceActivity(std::make_unique<EpubReaderBookmarkListActivity>(
-            renderer, mappedInputManager, std::vector<Bookmark>{bookmark}));
+        if (!BOOKMARKS.loadForBook("/books/metadata.epub", "Metadata", "Author", "epub"))
+          fail("Metadata bookmark store failed");
+        BOOKMARKS.clearAll();
+        BOOKMARKS.addBookmark(0, 0.5f, 1, "Chapter 一 Հայերեն", UINT16_MAX, "Latin title 一 Հայերեն");
+        activityManager.replaceActivity(std::make_unique<EpubReaderBookmarkListActivity>(renderer, mappedInputManager));
         queueStep("Metadata bookmarks", SmokeStep::Start, 6);
         break;
       }
@@ -6548,6 +6548,7 @@ class SimulatorSmokeTest {
     }
     if (tickAssetDownloadSmokeTest()) return;
     if (tickOpdsCatalogSmokeTest()) return;
+    if (tickBookmarkListSmokeTest()) return;
 
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_SUPPORT_EXPORT")) {
       tickSupportExport();

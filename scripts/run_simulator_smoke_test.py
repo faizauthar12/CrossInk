@@ -380,6 +380,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_OPDS_CATALOG"] = "1"
         if args.support_export:
             env["CROSSINK_SIMULATOR_SMOKE_SUPPORT_EXPORT"] = "1"
+        if args.bookmarks:
+            env["CROSSINK_SIMULATOR_SMOKE_BOOKMARKS"] = "1"
         if args.about:
             env["CROSSINK_SIMULATOR_SMOKE_ABOUT"] = "1"
         if args.release_notes:
@@ -431,6 +433,10 @@ def run_smoke(args: argparse.Namespace) -> int:
 
     if "Simulator smoke test passed" not in proc.stdout:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
+        return 2
+
+    if args.bookmarks and "Simulator smoke test passed: bookmarks" not in proc.stdout:
+        print("Simulator did not complete bookmark checks", file=sys.stderr)
         return 2
 
     if args.menu_orientation and "Simulator smoke test passed: menu orientation" not in proc.stdout:
@@ -527,6 +533,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frontlight-captures", help="Directory for frontlight layout framebuffer captures (PGM)")
     parser.add_argument("--opds-catalog", action="store_true", help="Check OPDS catalog release and download return flows")
     parser.add_argument("--support-export", action="store_true", help="Check support export privacy, scopes, cancellation and failure preservation")
+    parser.add_argument("--bookmarks", action="store_true", help="Check long bookmark lists from Home and the reader, scrolling, deletion and jumps; captures via --about-captures")
     parser.add_argument("--about", action="store_true", help="Check About navigation, paging and read-only snapshots across scales/orientations")
     parser.add_argument("--release-notes", action="store_true", help="Check the one-time What's New screen (Download, Update, touch Later vs swipe, landscape hints) and the Settings Release Notes entry; captures via --about-captures")
     parser.add_argument("--about-captures", help="Directory for About framebuffer captures (PGM)")

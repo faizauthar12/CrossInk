@@ -5,6 +5,25 @@ All POD fields are written in the ESP32 little-endian representation used by
 `Serialization.h`; strings are length-prefixed UTF-8 unless a format notes a
 fixed-size char buffer.
 
+## Bookmark file safety
+
+Bookmark files under `/.crosspoint/bookmarks/` retain their existing binary
+versions (2–5). No format bump or cache reset is required.
+
+Writes go to `<file>.tmp`, are checked, synced and closed, then replace the
+primary through the shared atomic-file publisher. `<file>.bak` retains the
+previous primary until publication completes; reads recover it after an
+interrupted publication. Header scans ignore temporary files and can recover
+backup-only stores.
+
+Home header scans reject title, author or book-path fields over 1024 bytes.
+Direct loads stream unused metadata and compare the stored path in 64-byte
+chunks. Record counts and remaining file bytes are checked before a fallible
+record allocation. A failed complete load or legacy merge disables editing and
+saving for that session, preserving both source files until a successful
+reload. This also fails closed on corrupt canonical files rather than replacing
+them with a potentially incomplete legacy subset.
+
 ## Settings: menu navigation
 
 `menuNavigation` in `/.crosspoint/crossink-settings.json` selects Directional

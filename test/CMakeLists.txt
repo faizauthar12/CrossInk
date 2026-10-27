@@ -181,3 +181,8 @@ add_test(NAME ReaderRestartStatsRegression
 
 add_test(NAME ReaderStatsLatencyRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_reader_stats_latency.py)
+
+add_test(NAME BookmarkListMemoryRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_bookmark_list_memory.py)
+
+add_subdirectory(bookmark_store)

@@ -119,6 +119,7 @@
 - Show EPUB and XTC page turns before periodic reading-stat saves, reducing SD-card pauses on button and touch devices. Defer periodic checkpoints until page input and rendering have been quiet for one second.
 - Keep words below large decorative first letters intact when EPUB text returns to full width; existing book layouts rebuild automatically (adapted from Uri Tauber, CrossPoint #4173).
 - Discover newly added sleep images, including after SD-card copies and USB Drive transfers, and shuffle through every image before repeating. Keep the rotation across sleep and restart, with no immediate repeat between rounds.
+- Reduce memory use when opening long bookmark lists from Home or the reader, and avoid a reboot if bookmark loading or the bookmark screen runs out of memory; failed loads and interrupted rewrites preserve saved bookmarks (#892).
 
 ### Changed
 
