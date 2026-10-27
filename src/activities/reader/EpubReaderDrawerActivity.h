@@ -25,6 +25,9 @@
 
 class EpubReaderDrawerActivity final : public Activity {
  public:
+#ifdef SIMULATOR
+  friend struct SliderOrientationSmokeTest;
+#endif
   using SaveSettingsCallback = void (*)(void* ctx);
   using SaveGlobalSettingsCallback = void (*)(void* ctx);
   using GlobalSettingsEditCallback = void (*)(void* ctx);

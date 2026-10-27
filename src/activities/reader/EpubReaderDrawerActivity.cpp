@@ -2889,12 +2889,8 @@ void EpubReaderDrawerActivity::loop() {
     }
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustPercentSlider(-1); });
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustPercentSlider(1); });
-    const int upStep = deviceHasEdgeSideButtons(gpio) ? -10 : 10;
-    const int downStep = -upStep;
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up},
-                                         [this, upStep] { adjustPercentSlider(upStep); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
-                                         [this, downStep] { adjustPercentSlider(downStep); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderIncreaseButton()}, [this] { adjustPercentSlider(10); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderDecreaseButton()}, [this] { adjustPercentSlider(-10); });
     return;
   }
   if (!mappedInput.hasTouchHardware() && state.pane == ReaderDrawerPane::AutoPageTurn) {
@@ -2908,10 +2904,8 @@ void EpubReaderDrawerActivity::loop() {
     };
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [&] { adjust(-1); });
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [&] { adjust(1); });
-    const int upStep = deviceHasEdgeSideButtons(gpio) ? -5 : 5;
-    const int downStep = -upStep;
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [&] { adjust(upStep); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [&] { adjust(downStep); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderIncreaseButton()}, [&] { adjust(5); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderDecreaseButton()}, [&] { adjust(-5); });
     return;
   }
   if (!mappedInput.hasTouchHardware() && readerDrawerStepChangesSettings(state.pane)) {
@@ -2936,8 +2930,12 @@ void EpubReaderDrawerActivity::loop() {
     };
     handleDirection(MappedInputManager::Button::Left, ReaderButtonSliderInput::Previous, -1);
     handleDirection(MappedInputManager::Button::Right, ReaderButtonSliderInput::Next, 1);
-    handleDirection(MappedInputManager::Button::Up, ReaderButtonSliderInput::Previous, -5);
-    handleDirection(MappedInputManager::Button::Down, ReaderButtonSliderInput::Next, 5);
+    // Outside edit mode the side keys select a row; while editing they adjust its value.
+    const auto previous =
+        buttonSliderState.editing ? mappedInput.sliderDecreaseButton() : MappedInputManager::Button::Up;
+    const auto next = buttonSliderState.editing ? mappedInput.sliderIncreaseButton() : MappedInputManager::Button::Down;
+    handleDirection(previous, ReaderButtonSliderInput::Previous, -5);
+    handleDirection(next, ReaderButtonSliderInput::Next, 5);
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       readerButtonSliderInput(buttonSliderState, ReaderButtonSliderInput::Confirm);
       requestUpdate();

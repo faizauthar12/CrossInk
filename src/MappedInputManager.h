@@ -245,6 +245,9 @@ class MappedInputManager {
 #endif
   // Directions for tabbed menus, derived from the physical button layout.
   Button menuButton(Button direction) const;
+  // Upper increases on vertical layouts; right increases on horizontal layouts.
+  Button sliderIncreaseButton() const;
+  Button sliderDecreaseButton() const { return sliderIncreaseButton() == Button::Up ? Button::Down : Button::Up; }
   // Non-consuming: queued edges, held keys/fingers, or input in this frame.
   bool hasPendingActivity() const;
   bool wasAnyPressed() const;

@@ -173,7 +173,8 @@ MappedInputManager::Button MappedInputManager::menuButton(const Button direction
   const auto orientation = static_cast<GfxRenderer::Orientation>(menuOrientation());
   const bool landscape =
       orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise;
-  if (deviceUsesHorizontalSideButtonsForMenus(gpio) == landscape) return direction;
+  // Keep the front pair's Up/Down role on opposite-edge devices when rotated.
+  if (!deviceUsesHorizontalSideButtonsForMenus(gpio) && !landscape) return direction;
   switch (direction) {
     case Button::Left:
       return Button::Up;
@@ -186,6 +187,14 @@ MappedInputManager::Button MappedInputManager::menuButton(const Button direction
     default:
       return direction;
   }
+}
+
+MappedInputManager::Button MappedInputManager::sliderIncreaseButton() const {
+  const auto orientation = static_cast<GfxRenderer::Orientation>(menuOrientation());
+  const bool landscape =
+      orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise;
+  const bool horizontal = deviceUsesHorizontalSideButtonsForMenus(gpio) != landscape;
+  return horizontal ? Button::Down : Button::Up;
 }
 
 uint8_t MappedInputManager::mappedSideButtonFor(const Button button) const {

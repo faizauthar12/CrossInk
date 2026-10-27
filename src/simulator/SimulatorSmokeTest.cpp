@@ -3,6 +3,7 @@
 #include "SimulatorSmokeTest.h"
 
 #include <Epub.h>
+#include <Epub/WordSpacing.h>
 #include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalScreenCalibration.h>
 #include <HalStorage.h>
@@ -74,12 +75,14 @@
 #include "activities/reader/BookStatsActivity.h"
 #include "activities/reader/BookStatsView.h"
 #include "activities/reader/DictionaryDefinitionActivity.h"
+#include "activities/reader/EndOfBookOptions.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderBookmarkListActivity.h"
 #include "activities/reader/EpubReaderChapterSelectionActivity.h"
 #include "activities/reader/EpubReaderClippingListActivity.h"
 #include "activities/reader/EpubReaderDrawerActivity.h"
 #include "activities/reader/EpubReaderFootnotesActivity.h"
+#include "activities/reader/EpubReaderPercentSelectionActivity.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/QrDisplayActivity.h"
@@ -104,6 +107,7 @@
 #include "activities/settings/StatusBarSettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/FrontlightPanelActivity.h"
+#include "activities/util/IntervalSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "activities/util/OptionSelectionActivity.h"
 #include "components/CompactHeader.h"
@@ -420,6 +424,42 @@ struct EpubReaderCompletionSmokeTest {
   }
 };
 std::optional<uint32_t> EpubReaderCompletionSmokeTest::statusAnchor;
+
+// Inspect values after dispatching physical key edges through each real slider loop.
+struct SliderOrientationSmokeTest {
+  static int value(const IntervalSelectionActivity& slider) { return slider.value; }
+  static int value(const EpubReaderPercentSelectionActivity& slider) { return slider.value; }
+  static void open(EpubReaderDrawerActivity& drawer, const ReaderDrawerPane pane, const uint8_t focus) {
+    drawer.openPane(pane);
+    drawer.buttonSliderState.focus = focus;
+    drawer.draft.lineHeightPercent = 100;
+    drawer.draft.wordSpacing = WordSpacing::fromLevel(0);
+    drawer.draft.characterSpacing = 5;
+    drawer.draft.screenMarginVertical = 20;
+    drawer.draft.screenMarginHorizontal = 20;
+    drawer.percent = 5000;
+    drawer.autoPageTurnIntervalSeconds = 30;
+  }
+  static int focus(const EpubReaderDrawerActivity& drawer) { return drawer.buttonSliderState.focus; }
+  static int value(const EpubReaderDrawerActivity& drawer) {
+    switch (drawer.state.pane) {
+      case ReaderDrawerPane::Spacing:
+        return drawer.buttonSliderState.focus == 0 ? drawer.draft.lineHeightPercent
+                                                   : WordSpacing::level(drawer.draft.wordSpacing);
+      case ReaderDrawerPane::Margins:
+        return drawer.buttonSliderState.focus == 0 ? drawer.draft.screenMarginVertical
+                                                   : drawer.draft.screenMarginHorizontal;
+      case ReaderDrawerPane::CharacterSpacing:
+        return drawer.draft.characterSpacing;
+      case ReaderDrawerPane::AutoPageTurn:
+        return drawer.autoPageTurnIntervalSeconds;
+      case ReaderDrawerPane::Percent:
+        return drawer.percent;
+      default:
+        return -1;
+    }
+  }
+};
 
 struct ReaderDrawerLayoutSmokeTest {
   template <typename Capture>
@@ -2306,8 +2346,8 @@ class SimulatorSmokeTest {
                 const bool landscape =
                     rotation == GfxRenderer::LandscapeClockwise || rotation == GfxRenderer::LandscapeCounterClockwise;
                 const bool horizontalSide = deviceUsesHorizontalSideButtonsForMenus(gpio);
-                if ((input.menuButton(B::Up) == B::Left) != (horizontalSide != landscape))
-                  fail("Directional menu axes did not rotate");
+                if ((input.menuButton(B::Up) == B::Left) != (horizontalSide || landscape))
+                  fail("Front menu Up/Down roles changed on rotation");
                 const bool sideSwap = rotation == GfxRenderer::PortraitInverted ||
                                       rotation == (horizontalSide ? GfxRenderer::LandscapeCounterClockwise
                                                                   : GfxRenderer::LandscapeClockwise);
@@ -2317,7 +2357,11 @@ class SimulatorSmokeTest {
                   if (!input.wasPressed(direction)) fail("Side menu press did not rotate");
                   edge(physicalUp ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, false);
                   if (!input.wasReleased(direction)) fail("Side menu release did not rotate");
-                  ++checks;
+                  edge(physicalUp ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, true);
+                  input.suppressNextSideRelease(direction);
+                  edge(physicalUp ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, false);
+                  if (input.wasReleased(direction)) fail("Rotated side-button release escaped suppression");
+                  checks += 2;
                 }
                 // Returning from a menu must restore the existing reader preference.
                 renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
@@ -2351,6 +2395,7 @@ class SimulatorSmokeTest {
     // Quick Actions is embedded in all three readers rather than pushed as an activity.
     SETTINGS.frontButtonOrientationAware = C::FRONT_ORIENTATION_AWARE_OFF;
     SETTINGS.readerFrontButtonsEnabled = false;
+    SETTINGS.sideButtonOrientationAware = false;
     SETTINGS.frontButtonBack = HalGPIO::BTN_BACK;
     SETTINGS.frontButtonConfirm = HalGPIO::BTN_CONFIRM;
     SETTINGS.frontButtonLeft = HalGPIO::BTN_LEFT;
@@ -2382,6 +2427,19 @@ class SimulatorSmokeTest {
       edge(HalGPIO::BTN_RIGHT, false);
       popup.handleInput(input, [] {});
       if (popup.simulatorSelectedIndex() != initial) fail("Popup upper button did not move up");
+      const bool oppositeEdges = deviceUsesHorizontalSideButtonsForMenus(gpio);
+      const uint8_t bottom = oppositeEdges ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN;
+      const uint8_t top = oppositeEdges ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP;
+      for (const bool pressed : {true, false}) {
+        edge(bottom, pressed);
+        popup.handleInput(input, [] {});
+      }
+      if (popup.simulatorSelectedIndex() != initial + 1) fail("Popup bottom side button did not move down");
+      for (const bool pressed : {true, false}) {
+        edge(top, pressed);
+        popup.handleInput(input, [] {});
+      }
+      if (popup.simulatorSelectedIndex() != initial) fail("Popup top side button did not move up");
       edge(HalGPIO::BTN_BACK, true);
       popup.handleInput(input, [] {});
       edge(HalGPIO::BTN_BACK, false);
@@ -2389,7 +2447,7 @@ class SimulatorSmokeTest {
       input.setMenuMode(reader.usesMenuButtonOrientation());
       if (input.isMenuMode()) fail("Closing reader popup did not restore page mapping");
       input.update();
-      checks += 4;
+      checks += 6;
     };
     {
       EpubReaderActivity reader(renderer, input, nullptr, {}, 0);
@@ -2402,6 +2460,52 @@ class SimulatorSmokeTest {
     {
       XtcReaderActivity reader(renderer, input, nullptr, 0);
       popupCheck(reader);
+    }
+    // Suggestions must ignore page-turn assignments, including swapped or disabled reader keys.
+    std::filesystem::create_directories("fs_/menu-end");
+    for (const char* name : {"a.epub", "b.epub", "c.epub"}) {
+      const auto path = std::filesystem::path("fs_/menu-end") / name;
+      FILE* file = std::fopen(path.c_str(), "wb");
+      if (!file) fail("Cannot create end-menu fixture");
+      std::fclose(file);
+    }
+    for (const auto orientation : {GfxRenderer::LandscapeClockwise, GfxRenderer::LandscapeCounterClockwise}) {
+      renderer.setOrientation(orientation);
+      SETTINGS.orientation = orientation;
+      input.setMenuMode(true);
+      const bool ccw = orientation == GfxRenderer::LandscapeCounterClockwise;
+      const bool oppositeEdges = deviceUsesHorizontalSideButtonsForMenus(gpio);
+      const bool swap = oppositeEdges ? ccw : !ccw;
+      const uint8_t bottom = swap ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN;
+      const uint8_t top = swap ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP;
+      for (const bool aware : {false, true}) {
+        SETTINGS.sideButtonOrientationAware = aware;
+        for (const auto actions : {std::pair{C::PREVIOUS_PAGE, C::PAGE_TURN}, std::pair{C::PAGE_TURN, C::PREVIOUS_PAGE},
+                                   std::pair{C::IGNORE, C::IGNORE}, std::pair{C::LIBRARY, C::FORCE_REFRESH}}) {
+          SETTINGS.sideButtonUpShort = actions.first;
+          SETTINGS.sideButtonDownShort = actions.second;
+          EndOfBookOptions suggestions(renderer);
+          suggestions.loadOnce("/menu-end/a.epub");
+          if (!suggestions.menuActive()) fail("End-menu fixture has no suggestions");
+          suggestions.render(renderer, input);
+          const auto tap = [&](const uint8_t button, std::string* path = nullptr) {
+            edge(button, true);
+            suggestions.handleMenuInput(input, path);
+            edge(button, false);
+            return suggestions.handleMenuInput(input, path);
+          };
+          if (tap(bottom) != EndOfBookOptions::Action::Redraw) fail("Bottom side key did not move suggestions");
+          std::string selected;
+          if (tap(SETTINGS.frontButtonConfirm, &selected) != EndOfBookOptions::Action::OpenBook ||
+              selected != "/menu-end/c.epub")
+            fail("Bottom side key did not select the next suggestion");
+          if (tap(top) != EndOfBookOptions::Action::Redraw) fail("Top side key did not move suggestions");
+          if (tap(SETTINGS.frontButtonConfirm, &selected) != EndOfBookOptions::Action::OpenBook ||
+              selected != "/menu-end/b.epub")
+            fail("Top side key did not select the previous suggestion");
+          checks += 4;
+        }
+      }
     }
     SETTINGS.fromJson(original.as<JsonVariantConst>());
     input.setReaderMode(false);
@@ -2422,27 +2526,230 @@ class SimulatorSmokeTest {
           edge(physical, false);
           menu.loop();
         };
-        const uint8_t nextPhysical = orientation == GfxRenderer::LandscapeCounterClockwise ? SETTINGS.frontButtonLeft
-                                                                                           : SETTINGS.frontButtonRight;
-        const uint8_t previousPhysical = orientation == GfxRenderer::LandscapeCounterClockwise
-                                             ? SETTINGS.frontButtonRight
-                                             : SETTINGS.frontButtonLeft;
-        tapPhysical(nextPhysical);
-        tapPhysical(nextPhysical);
-        if (menu.simulatorSelectedIndex() != 2) fail("Lower front button did not move down the menu");
-        tapPhysical(previousPhysical);
-        if (menu.simulatorSelectedIndex() != 1) fail("Upper front button did not move up the menu");
+        const bool oppositeEdges = deviceUsesHorizontalSideButtonsForMenus(gpio);
+        const bool ccw = orientation == GfxRenderer::LandscapeCounterClockwise;
+        const uint8_t frontNext = ccw ? SETTINGS.frontButtonLeft : SETTINGS.frontButtonRight;
+        const uint8_t frontPrevious = ccw ? SETTINGS.frontButtonRight : SETTINGS.frontButtonLeft;
+        const int category = menu.simulatorCategoryIndex();
+        tapPhysical(frontNext);
+        tapPhysical(frontNext);
+        if (menu.simulatorSelectedIndex() != 2 || menu.simulatorCategoryIndex() != category)
+          fail("Front Down changed tabs instead of moving rows");
+        tapPhysical(frontPrevious);
+        if (menu.simulatorSelectedIndex() != 1 || menu.simulatorCategoryIndex() != category)
+          fail("Front Up changed tabs instead of moving rows");
+        if (oppositeEdges) {
+          if (input.menuButton(B::Up) != B::Left) fail("Front hints must remain Up/Down in landscape");
+          const uint8_t bottom = ccw ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN;
+          const uint8_t top = ccw ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP;
+          tapPhysical(bottom);
+          if (mode == C::MENU_NAV_DIRECTIONAL) {
+            if (menu.simulatorCategoryIndex() == category) fail("Bottom side button did not advance Settings tabs");
+          } else if (menu.simulatorSelectedIndex() != 2 || menu.simulatorCategoryIndex() != category) {
+            fail("Classic side tap did not move down a row");
+          }
+          tapPhysical(top);
+          if (menu.simulatorSelectedIndex() != 1 || menu.simulatorCategoryIndex() != category)
+            fail("Top side button did not restore Settings selection");
+          gpio.beginFrame();
+          input.update();
+          input.simulatorInjectPress(B::Down);
+          menu.loop();
+          input.simulatorClearInputFrame();
+          delay(510);
+          menu.loop();
+          const int heldCategory = menu.simulatorCategoryIndex();
+          if (heldCategory == category) fail("Held side button did not advance Settings tabs");
+          input.simulatorInjectRelease(B::Down);
+          menu.loop();
+          input.simulatorClearInputFrame();
+          if (menu.simulatorCategoryIndex() != heldCategory) fail("Side hold release changed an extra tab");
+          tapPhysical(top);
+          if (mode == C::MENU_NAV_DIRECTIONAL && menu.simulatorCategoryIndex() != category)
+            fail("Previous side key did not restore Settings tab after hold");
+          checks += 5;
+        }
+        checks += 2;
         menu.render(std::move(lock));
         captureStatusBarScreen((std::string("menu-") + (mode == C::MENU_NAV_CLASSIC ? "classic-" : "directional-") +
                                 (orientation == GfxRenderer::LandscapeClockwise ? "cw" : "ccw"))
                                    .c_str());
         menu.onExit();
+        renderer.setOrientation(orientation);
+        input.setMenuMode(true);
+        EpubReaderDrawerActivity drawer(renderer, input, {}, nullptr, 0.0f, 0, 0, false, false, false, false, false,
+                                        false, false, false, true, true, 0, 0, 5, false);
+        drawer.onEnter();
+        drawer.render(std::move(lock));
+        const auto tapDrawer = [&](const uint8_t physical) {
+          edge(physical, true);
+          drawer.loop();
+          edge(physical, false);
+          drawer.loop();
+        };
+        const auto initialTab = drawer.simulatorState().tab;
+        tapDrawer(SETTINGS.frontButtonConfirm);
+        if (drawer.simulatorState().tab == initialTab) fail("Confirm can no longer navigate reader tabs");
+        const auto tab = drawer.simulatorState().tab;
+        tapDrawer(frontNext);  // Focus the first row from the tab band.
+        tapDrawer(frontNext);
+        if (drawer.simulatorState().selectedIndex != 1 || drawer.simulatorState().tab != tab)
+          fail("Reader front Down changed tabs instead of moving rows");
+        tapDrawer(frontPrevious);
+        if (drawer.simulatorState().selectedIndex != 0 || drawer.simulatorState().tab != tab)
+          fail("Reader front Up changed tabs instead of moving rows");
+        if (oppositeEdges) {
+          tapDrawer(ccw ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN);
+          if (mode == C::MENU_NAV_DIRECTIONAL) {
+            if (drawer.simulatorState().tab != adjacentReaderDrawerTab(tab, true))
+              fail("Reader bottom side button did not advance tabs");
+          } else if (drawer.simulatorState().selectedIndex != 1 || drawer.simulatorState().tab != tab) {
+            fail("Classic reader side tap did not move down a row");
+          }
+          tapDrawer(ccw ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP);
+          if (drawer.simulatorState().selectedIndex != 0 || drawer.simulatorState().tab != tab)
+            fail("Reader top side button did not restore selection");
+          if (mode == C::MENU_NAV_DIRECTIONAL) {
+            gpio.beginFrame();
+            input.update();
+            input.simulatorInjectPress(B::Down);
+            drawer.loop();
+            input.simulatorClearInputFrame();
+            delay(510);
+            drawer.loop();
+            const auto heldTab = drawer.simulatorState().tab;
+            if (heldTab != adjacentReaderDrawerTab(tab, true)) fail("Held reader side button did not advance tabs");
+            input.simulatorInjectRelease(B::Down);
+            drawer.loop();
+            input.simulatorClearInputFrame();
+            if (drawer.simulatorState().tab != heldTab) fail("Reader side hold release changed an extra tab");
+            tapDrawer(ccw ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP);
+            if (drawer.simulatorState().tab != tab) fail("Reader previous side key did not restore tab after hold");
+            checks += 3;
+          }
+          checks += 2;
+        }
+        checks += 3;
+        drawer.render(std::move(lock));
+        captureStatusBarScreen((std::string("reader-menu-") +
+                                (mode == C::MENU_NAV_CLASSIC ? "classic-" : "directional-") + (ccw ? "ccw" : "cw"))
+                                   .c_str());
+        drawer.onExit();
+      }
+    }
+    // Slider value direction is independent of menu row direction and reader preferences.
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    SETTINGS.frontButtonBack = HalGPIO::BTN_BACK;
+    SETTINGS.frontButtonConfirm = HalGPIO::BTN_CONFIRM;
+    SETTINGS.frontButtonLeft = HalGPIO::BTN_LEFT;
+    SETTINGS.frontButtonRight = HalGPIO::BTN_RIGHT;
+    SETTINGS.readerFrontButtonsEnabled = false;
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise,
+                                   GfxRenderer::PortraitInverted, GfxRenderer::LandscapeCounterClockwise}) {
+      renderer.setOrientation(orientation);
+      const bool oppositeEdges = deviceUsesHorizontalSideButtonsForMenus(gpio);
+      const bool upIncreases =
+          oppositeEdges
+              ? (orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::PortraitInverted)
+              : (orientation == GfxRenderer::Portrait || orientation == GfxRenderer::LandscapeClockwise);
+      const uint8_t increase = upIncreases ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN;
+      const uint8_t decrease = upIncreases ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP;
+      for (const bool aware : {false, true}) {
+        SETTINGS.sideButtonOrientationAware = aware;
+        SETTINGS.frontButtonOrientationAware =
+            aware ? C::FRONT_ORIENTATION_AWARE_ALL_BUTTONS : C::FRONT_ORIENTATION_AWARE_OFF;
+        SETTINGS.orientation = (orientation + 1) % 4;  // The menu's actual orientation owns slider input.
+        input.setMenuMode(true);
+        const auto tap = [&](auto& slider, const uint8_t physical) {
+          edge(physical, true);
+          slider.loop();
+          edge(physical, false);
+          slider.loop();
+        };
+        const auto checkDirections = [&](auto& slider, const bool checkHold = false) {
+          const int before = SliderOrientationSmokeTest::value(slider);
+          tap(slider, increase);
+          const int raised = SliderOrientationSmokeTest::value(slider);
+          if (raised <= before) fail("Upper/right slider button did not increase (orientation=%d)", orientation);
+          tap(slider, decrease);
+          if (SliderOrientationSmokeTest::value(slider) >= raised)
+            fail("Lower/left slider button did not decrease (orientation=%d)", orientation);
+          checks += 2;
+          if (checkHold) {
+            // SDL-pushed edges do not update SDL's held-key state; use the simulator hold API.
+            gpio.beginFrame();
+            input.update();
+            const auto button = input.sliderIncreaseButton();
+            input.simulatorInjectPress(button);
+            slider.loop();
+            input.simulatorClearInputFrame();
+            const int pressedValue = SliderOrientationSmokeTest::value(slider);
+            delay(510);
+            slider.loop();
+            const int heldValue = SliderOrientationSmokeTest::value(slider);
+            if (heldValue <= pressedValue) fail("Held upper slider button did not repeat upward");
+            input.simulatorInjectRelease(button);
+            slider.loop();
+            input.simulatorClearInputFrame();
+            if (SliderOrientationSmokeTest::value(slider) != heldValue) fail("Slider hold release added a step");
+            checks += 2;
+          }
+        };
+        input.setReaderMode(false);
+        IntervalSelectionActivity interval(renderer, input, "SliderOrientation", StrId::STR_LINE_SPACING, 100, 50, 200,
+                                           1, 5);
+        interval.onEnter();
+        // Theme hint drawing temporarily switches the renderer to portrait.
+        renderer.setOrientation(GfxRenderer::Portrait);
+        checkDirections(interval, true);
+        renderer.setOrientation(orientation);
+        interval.render(std::move(lock));
+        if (!aware) captureStatusBarScreen(("slider-settings-" + std::to_string(orientation)).c_str());
+        interval.onExit();
+        // Touch percent selection uses a keypad, and touch reader sliders route their own UI events.
+        if (input.hasTouchHardware()) continue;
+        input.setReaderMode(true);
+        EpubReaderPercentSelectionActivity percentSlider(renderer, input, 50.0f);
+        percentSlider.onEnter();
+        checkDirections(percentSlider);
+        percentSlider.onExit();
+        EpubReaderDrawerActivity drawer(renderer, input, {}, nullptr, 50.0f, 0, 0, false, false, false, false, false,
+                                        false, false, false, true, true, 0, 0, 30, false);
+        drawer.onEnter();
+        for (const auto pane :
+             {ReaderDrawerPane::Spacing, ReaderDrawerPane::Margins, ReaderDrawerPane::CharacterSpacing,
+              ReaderDrawerPane::AutoPageTurn, ReaderDrawerPane::Percent}) {
+          for (const uint8_t focus : {0, 1}) {
+            if (focus && pane != ReaderDrawerPane::Spacing && pane != ReaderDrawerPane::Margins) continue;
+            SliderOrientationSmokeTest::open(drawer, pane, focus);
+            if (focus == 0 && (pane == ReaderDrawerPane::Spacing || pane == ReaderDrawerPane::Margins)) {
+              const bool swap = orientation == GfxRenderer::PortraitInverted ||
+                                orientation == (oppositeEdges ? GfxRenderer::LandscapeCounterClockwise
+                                                              : GfxRenderer::LandscapeClockwise);
+              tap(drawer, swap ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN);
+              if (SliderOrientationSmokeTest::focus(drawer) != 1) fail("Slider row selection lost its Down control");
+              tap(drawer, swap ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP);
+              if (SliderOrientationSmokeTest::focus(drawer) != 0) fail("Slider row selection lost its Up control");
+              checks += 2;
+            }
+            if (pane != ReaderDrawerPane::Percent && pane != ReaderDrawerPane::AutoPageTurn)
+              tap(drawer, SETTINGS.frontButtonConfirm);  // Enter value editing through the real loop.
+            checkDirections(drawer, pane == ReaderDrawerPane::Spacing && focus == 0);
+            if (!aware && pane == ReaderDrawerPane::Spacing && focus == 0) {
+              drawer.render(std::move(lock));
+              captureStatusBarScreen(("slider-reader-line-height-" + std::to_string(orientation)).c_str());
+            }
+          }
+        }
+        drawer.onExit();
       }
     }
     SETTINGS.fromJson(original.as<JsonVariantConst>());
     renderer.setOrientation(savedOrientation);
     ButtonNavigator::setMappedInputManager(mappedInputManager);
     gpio.beginFrame();
+    LOG_INF("SMOKE", "Verified %s side-button layout in menus and embedded reader popups",
+            deviceUsesHorizontalSideButtonsForMenus(gpio) ? "opposite-edge" : "stacked");
     LOG_INF("SMOKE", "Menu orientation labels/actions and reader preferences passed (%u checks)",
             static_cast<unsigned>(checks));
   }
