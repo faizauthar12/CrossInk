@@ -39,11 +39,11 @@ constexpr bool validReaderStatusBarItemValue(const int value, const bool clockAv
 enum class ReaderStatusBarBatteryStyle : uint8_t { IconAndPercent = 0, IconOnly, PercentOnly, Count };
 
 // Glyph joining items when a bar is centered. Values are persisted; keep them stable.
-enum class ReaderStatusBarSeparator : uint8_t { Bullet = 0, Dash, Pipe, Count };
+enum class ReaderStatusBarSeparator : uint8_t { Bullet = 0, Dash, Pipe, MiddleDot, Count };
 
-// Flash-resident glyphs: bullet U+2022, en dash U+2013, vertical bar.
+// Flash-resident glyphs: bullet U+2022, en dash U+2013, vertical bar, middle dot U+00B7.
 inline const char* readerStatusBarSeparatorGlyph(const ReaderStatusBarSeparator separator) {
-  static const char* const GLYPHS[] = {"\xE2\x80\xA2", "\xE2\x80\x93", "|"};
+  static const char* const GLYPHS[] = {"\xE2\x80\xA2", "\xE2\x80\x93", "|", "\xC2\xB7"};
   const auto index = static_cast<unsigned>(separator);
   return index < sizeof(GLYPHS) / sizeof(GLYPHS[0]) ? GLYPHS[index] : GLYPHS[0];
 }

@@ -838,16 +838,17 @@ struct StatusBarFeatureSmokeTest {
     editor.render(std::move(lock));
     capture("centered-separator-picker");
     if (std::strcmp(editor.optionPopup.simulatorOptionLabel(1), "\xE2\x80\x93") != 0) return false;
-    if (!choose(editor, 2, lock)) return false;
+    if (std::strcmp(editor.optionPopup.simulatorOptionLabel(3), "\xC2\xB7") != 0) return false;
+    if (!choose(editor, 3, lock)) return false;
     editor.render(std::move(lock));
     editor.render(std::move(lock));
-    capture("centered-settings-pipe");
+    capture("centered-settings-middle-dot");
     editor.onExit();
     if (!SETTINGS.loadFromFile()) return false;
     const auto saved = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom);
     SETTINGS.setReaderStatusBar(ReaderStatusBarPosition::Bottom, original);
     SETTINGS.saveToFile();
-    return saved.centered && saved.separator == ReaderStatusBarSeparator::Pipe;
+    return saved.centered && saved.separator == ReaderStatusBarSeparator::MiddleDot;
   }
   static bool settings(RenderLock& lock, const Capture& capture) {
     SETTINGS.legacyXtcTopUsesBottom = 1;

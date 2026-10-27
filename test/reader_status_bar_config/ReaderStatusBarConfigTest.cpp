@@ -533,6 +533,7 @@ TEST(CenteredReaderStatusBar, SeparatorGlyphsMatchPersistedValues) {
   EXPECT_STREQ(readerStatusBarSeparatorGlyph(ReaderStatusBarSeparator::Bullet), "\xE2\x80\xA2");
   EXPECT_STREQ(readerStatusBarSeparatorGlyph(ReaderStatusBarSeparator::Dash), "\xE2\x80\x93");
   EXPECT_STREQ(readerStatusBarSeparatorGlyph(ReaderStatusBarSeparator::Pipe), "|");
+  EXPECT_STREQ(readerStatusBarSeparatorGlyph(ReaderStatusBarSeparator::MiddleDot), "\xC2\xB7");
   EXPECT_STREQ(readerStatusBarSeparatorGlyph(ReaderStatusBarSeparator::Count), "\xE2\x80\xA2");
 }
 
@@ -547,6 +548,22 @@ TEST(CenteredReaderStatusBar, JsonRoundTripsCenteredAndSeparator) {
   EXPECT_TRUE(loaded.centered);
   EXPECT_EQ(loaded.separator, ReaderStatusBarSeparator::Pipe);
   EXPECT_EQ(loaded.slots, original.slots);
+}
+
+TEST(CenteredReaderStatusBar, MiddleDotRoundTripsWithoutChangingExistingValues) {
+  EXPECT_EQ(static_cast<unsigned>(ReaderStatusBarSeparator::Bullet), 0u);
+  EXPECT_EQ(static_cast<unsigned>(ReaderStatusBarSeparator::Dash), 1u);
+  EXPECT_EQ(static_cast<unsigned>(ReaderStatusBarSeparator::Pipe), 2u);
+  ReaderStatusBarConfig original;
+  original.centered = true;
+  original.separator = ReaderStatusBarSeparator::MiddleDot;
+  JsonDocument saved;
+  writeReaderStatusBarJson(saved.to<JsonObject>(), original);
+  EXPECT_EQ(saved["separator"].as<unsigned>(), 3u);
+  ReaderStatusBarConfig loaded;
+  ASSERT_TRUE(readReaderStatusBarJson(saved.as<JsonVariantConst>(), loaded, true, 3, 3, 3));
+  EXPECT_EQ(loaded.separator, ReaderStatusBarSeparator::MiddleDot);
+  EXPECT_TRUE(loaded.centered);
 }
 
 TEST(CenteredReaderStatusBar, MissingKeysDefaultAndInvalidValuesRejectThenRepair) {
@@ -564,7 +581,7 @@ TEST(CenteredReaderStatusBar, MissingKeysDefaultAndInvalidValuesRejectThenRepair
   EXPECT_FALSE(parsed.centered);
   EXPECT_EQ(parsed.separator, ReaderStatusBarSeparator::Bullet);
 
-  for (const char* raw : {"3", "-1", "\"1\"", "null", "true"}) {
+  for (const char* raw : {"4", "-1", "\"1\"", "null", "true"}) {
     JsonDocument bad;
     ASSERT_FALSE(deserializeJson(bad, raw));
     writeReaderStatusBarJson(saved.to<JsonObject>(), original);
