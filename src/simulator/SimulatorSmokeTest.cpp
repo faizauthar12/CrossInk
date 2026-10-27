@@ -226,7 +226,7 @@ struct EpubReaderCompletionSmokeTest {
     LOG_INF("SMOKE", "EPUB reading pace: filters, gradual handover, persisted pace and reset passed");
     return true;
   }
-  static bool run(EpubReaderActivity& active) {
+  static bool run(EpubReaderActivity& active, void (*capture)(const char*)) {
     auto reader = std::make_unique<EpubReaderActivity>(renderer, mappedInputManager, nullptr,
                                                        EpubReaderActivity::BookReaderSettingsData{}, 1);
     if (!readingPace(*reader)) return false;
@@ -246,6 +246,36 @@ struct EpubReaderCompletionSmokeTest {
       reader->statsTrackingActive = false;
       reader->refreshStableTextProgress();
       if (!reader->hasStableTextPosition) return false;
+      // An established book estimate survives a new session's text-pace warmup,
+      // even before this incremental chapter supplies a usable page density.
+      reader->lastBookTimeLeftSeconds = 1800;
+      uint32_t retained = 0;
+      if (!reader->estimateTimeLeftSeconds(true, retained) || retained != 1800) return false;
+      char retainedLabel[24] = {};
+      char expectedLabel[24] = {};
+      formatCompactReadingDuration(1800, expectedLabel, sizeof(expectedLabel));
+      if (!reader->formatTimeLeftLabel(retainedLabel, sizeof(retainedLabel), true) ||
+          std::strcmp(retainedLabel, expectedLabel))
+        return false;
+      reader->refreshCachedTimeLeftEstimate();
+      if (reader->stats.estimatedTimeLeftSeconds != 1800) return false;
+      const auto captureEstimate = [&](const char* name) {
+        RenderLock lock;
+        const auto originalBar = SETTINGS.bottomReaderStatusBar;
+        const int originalHeight = UITheme::getStatusBarHeight(renderer);
+        SETTINGS.bottomReaderStatusBar.hidden = false;
+        SETTINGS.bottomReaderStatusBar.slots = {};
+        SETTINGS.bottomReaderStatusBar.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::TimeLeftBook;
+        const int height = std::max(originalHeight, UITheme::getStatusBarHeight(renderer));
+        int top, right, bottom, left;
+        renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+        renderer.fillRect(left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right,
+                          height, ReaderUtils::readerDarkModeEnabled());
+        reader->renderStatusBar();
+        capture(name);
+        SETTINGS.bottomReaderStatusBar = originalBar;
+      };
+      captureEstimate("book-time-left-warmup");
       const double start = reader->stableTextPosition;
       reader->paceSampleWarmupPending = false;
       for (int page = 1; page <= 3; ++page) {
@@ -253,6 +283,7 @@ struct EpubReaderCompletionSmokeTest {
         reader->pageTurn(true, "stable_eta_smoke");
         if (reader->pendingStableReadSeconds != 10 || reader->section->currentPage != page) return false;
         reader->refreshStableTextProgress();
+        if (page < 3 && (!reader->estimateTimeLeftSeconds(true, retained) || retained != 1800)) return false;
       }
       uint32_t actual = 0;
       const double distance = reader->stableTextPosition - start;
@@ -260,6 +291,7 @@ struct EpubReaderCompletionSmokeTest {
       const uint32_t expected =
           static_cast<uint32_t>((reader->stableTextTotal - reader->stableTextPosition) * 30.0 / distance + 0.5);
       if (!reader->estimateTimeLeftSeconds(true, actual) || actual != expected) return false;
+      captureEstimate("book-time-left-learned");
       reader->section->suspendBuild();
       reader->refreshStableTextProgress();
       uint32_t suspended = 0;
@@ -267,10 +299,17 @@ struct EpubReaderCompletionSmokeTest {
         return false;
       reader->section.reset();
       reader->hasStableTextPosition = false;
+      if (!reader->estimateTimeLeftSeconds(true, retained) || retained != actual) return false;
+      reader->refreshCachedTimeLeftEstimate();
+      if (reader->stats.estimatedTimeLeftSeconds != actual) return false;
+      if (reader->estimateTimeLeftSeconds(false, retained)) return false;  // Never use book ETA as chapter ETA.
+      reader->resetReadingPaceData();
+      if (reader->estimateTimeLeftSeconds(true, retained)) return false;
       reader->stableReadingPace = {};
       reader->statsTrackingActive = true;
       if (!readingPace(*reader)) return false;
-      LOG_INF("SMOKE", "Stable book ETA: real incremental offsets, timed forward turns and suspended cache passed");
+      LOG_INF("SMOKE",
+              "Stable book ETA: retained warmup, fresh handover, missing chapter, saved fallback and reset passed");
     }
 
     // Exercise the real ETA path with a chapter count that changes 40 -> 100
@@ -286,6 +325,16 @@ struct EpubReaderCompletionSmokeTest {
       reader->refreshBookPageEstimate();
       uint32_t first = 0;
       if (!reader->estimateTimeLeftSeconds(true, first)) return false;
+      // Without a retained value, usable page pace bridges text-pace warmup.
+      reader->lastBookTimeLeftSeconds = 0;
+      reader->hasStableTextPosition = true;
+      reader->stableTextSpine = reader->currentSpineIndex;
+      reader->stableTextPage = reader->section->currentPage;
+      reader->stableTextTotal = 200000;
+      reader->stableTextPosition = 100000;
+      uint32_t provisional = 0;
+      if (!reader->estimateTimeLeftSeconds(true, provisional) || provisional != first) return false;
+      reader->hasStableTextPosition = false;
       reader->section->pageCount = 100;
       reader->section->currentPage = 1;
       reader->refreshBookPageEstimate();
@@ -329,6 +378,12 @@ struct EpubReaderCompletionSmokeTest {
       reader->prepareCurrentSectionForRelayout();
       if (reader->bookPageEstimate.pagesPerByte() != 0) return false;
       reader->section.reset();
+      // Deleting book stats must clear both display fallback and text pace.
+      reader->resetCurrentBookStatsAfterDelete();
+      uint32_t deletedSeconds = 0;
+      if (reader->estimateTimeLeftSeconds(true, deletedSeconds) ||
+          reader->stableReadingPace.estimate(1000, deletedSeconds))
+        return false;
       reader->pendingRelayoutReposition = false;
       reader->nextPageNumber = 0;
       LOG_INF("SMOKE", "Book time-left: chapter opening, revised count, stable pace, final page and relayout passed");
@@ -7998,7 +8053,8 @@ class SimulatorSmokeTest {
           fail("Bitmap font reload lost live section or reading position");
 #endif
         if (!EpubReaderCompletionSmokeTest::run(
-                *static_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity()))) {
+                *static_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity()),
+                captureStatusBarScreen)) {
           fail("EPUB completion shortcut regression");
         }
         queueStep("Completion shortcut returned Home", SmokeStep::CompletionReturnedHome);

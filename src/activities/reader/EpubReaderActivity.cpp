@@ -1891,17 +1891,32 @@ bool EpubReaderActivity::estimateTimeLeftSeconds(const bool bookEstimate, uint32
   // font size and the number of screenfuls in a chapter cannot change this ETA.
   if (bookEstimate && hasStableTextPosition && !activeFootnotePreview && section &&
       stableTextSpine == currentSpineIndex && stableTextPage == section->currentPage) {
-    return stableReadingPace.estimate(stableTextTotal - stableTextPosition, seconds);
+    if (stableReadingPace.estimate(stableTextTotal - stableTextPosition, seconds)) {
+      lastBookTimeLeftSeconds = seconds;
+      return true;
+    }
+    // Reopening starts text-pace learning again. Keep the previous estimate
+    // visible until it is ready instead of repeatedly showing Calculating.
+    if (lastBookTimeLeftSeconds > 0) {
+      seconds = lastBookTimeLeftSeconds;
+      return true;
+    }
   }
   float paceSeconds = 0;
   const char* paceSource = "none";
   uint16_t paceSampleCount = 0;
   float remainingPages = 0;
-  if (!getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount) ||
-      !estimateRemainingTimeLeftPages(bookEstimate, remainingPages))
-    return false;
-  const double estimate = static_cast<double>(remainingPages) * paceSeconds;
-  seconds = estimate >= UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(estimate + 0.5);
+  if (getTimeLeftPaceSeconds(paceSeconds, paceSource, paceSampleCount) &&
+      estimateRemainingTimeLeftPages(bookEstimate, remainingPages)) {
+    const double estimate = static_cast<double>(remainingPages) * paceSeconds;
+    seconds = estimate >= UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(estimate + 0.5);
+  }
+  if (bookEstimate) {
+    if (seconds > 0)
+      lastBookTimeLeftSeconds = seconds;
+    else
+      seconds = lastBookTimeLeftSeconds;
+  }
   return seconds > 0;
 }
 
@@ -2475,6 +2490,7 @@ void EpubReaderActivity::onEnter() {
   // Session count and reading time are committed on exit, or when tracking is
   // turned off, once thresholds are met.
   stats = BookReadingStats::load(epub->getCachePath());
+  lastBookTimeLeftSeconds = stats.isCompleted ? 0 : stats.estimatedTimeLeftSeconds;
   sessionStartPaceMillis = stats.averageForwardPageMillis();
   sessionStartPaceSampleCount = stats.paceSampleCount;
   bookStatsEnabled = BookStatsTracking::isBookEnabled(epub->getCachePath());
@@ -5146,6 +5162,7 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
 
 void EpubReaderActivity::resetReadingPaceData() {
   stableReadingPace = {};
+  lastBookTimeLeftSeconds = 0;
   pendingStableReadSeconds = 0;
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const uint16_t oldAvg = stats.avgSecondsPerForwardPage;
@@ -5173,6 +5190,9 @@ void EpubReaderActivity::resetReadingPaceData() {
 void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   readingSessionJournal.flush();
   stats = BookReadingStats{};
+  stableReadingPace = {};
+  lastBookTimeLeftSeconds = 0;
+  pendingStableReadSeconds = 0;
   sessionReadingSeconds = 0;
   statsCheckpointRevision = 0;
   dailyReadingSession.reset();
