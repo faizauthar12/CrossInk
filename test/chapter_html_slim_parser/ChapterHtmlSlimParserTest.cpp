@@ -1403,22 +1403,20 @@ TEST_F(ChapterHtmlSlimParserTest, NormalWhiteSpaceStillCollapses) {
   EXPECT_FALSE(parser.currentTextBlock->isPreformatted());
 }
 
-TEST_F(ChapterHtmlSlimParserTest, PreWrapKeepsSpaceRunsAsGluedSpaceTokens) {
+TEST_F(ChapterHtmlSlimParserTest, PreWrapKeepsSpaceRunsAsOneGluedSpaceToken) {
   const XML_Char* attributes[] = {"style", "white-space: pre-wrap", nullptr};
   ChapterHtmlSlimParser::startElement(&parser, "div", attributes);
   feed(parser, "git   remote");
   parser.flushPartWordBuffer();
 
   const auto& block = *parser.currentTextBlock;
-  ASSERT_EQ(block.size(), 4u);
+  ASSERT_EQ(block.size(), 3u);
   EXPECT_EQ(block.words[0], "git");
-  EXPECT_EQ(block.words[1], " ");
-  EXPECT_EQ(block.words[2], " ");
-  EXPECT_EQ(block.words[3], "remote");
-  // The first space stays a normal (breakable) gap; the rest are glued width.
+  EXPECT_EQ(block.words[1], "  ");
+  EXPECT_EQ(block.words[2], "remote");
+  // The first space stays a normal (breakable) gap; the rest are one glued token.
   EXPECT_FALSE(block.wordContinues[1]);
   EXPECT_TRUE(block.wordContinues[2]);
-  EXPECT_TRUE(block.wordContinues[3]);
   EXPECT_TRUE(block.isPreformatted());
   EXPECT_FALSE(block.hyphenationEnabled);
 }
@@ -1431,11 +1429,10 @@ TEST_F(ChapterHtmlSlimParserTest, PreSplitsSourceLinesAndKeepsIndentWithoutCss) 
   EXPECT_EQ(parser.currentPage->elements.size(), 1u);  // leading newline added no blank line
 
   const auto& line = *parser.currentTextBlock;
-  ASSERT_EQ(line.size(), 3u);
-  EXPECT_EQ(line.words[0], " ");
-  EXPECT_EQ(line.words[1], " ");
-  EXPECT_EQ(line.words[2], "Cargo.toml");
-  EXPECT_TRUE(line.wordContinues[2]);
+  ASSERT_EQ(line.size(), 2u);
+  EXPECT_EQ(line.words[0], "  ");
+  EXPECT_EQ(line.words[1], "Cargo.toml");
+  EXPECT_TRUE(line.wordContinues[1]);
   EXPECT_EQ(line.resolveFirstLineIndent(true, renderer, 0), 0);
 
   ChapterHtmlSlimParser::endElement(&parser, "pre");
@@ -1452,9 +1449,24 @@ TEST_F(ChapterHtmlSlimParserTest, PreExpandsTabsToEightColumnStops) {
   ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
   feed(parser, "ab\tc");
   parser.flushPartWordBuffer();
-  // "ab" + tab to column 8 = 6 spaces: 1 breakable gap + 5 glued tokens.
-  ASSERT_EQ(parser.currentTextBlock->size(), 7u);
-  EXPECT_EQ(parser.currentTextBlock->words[6], "c");
+  // "ab" + tab to column 8 = 6 spaces: 1 breakable gap + one glued 5-space token.
+  ASSERT_EQ(parser.currentTextBlock->size(), 3u);
+  EXPECT_EQ(parser.currentTextBlock->words[1], "     ");
+  EXPECT_EQ(parser.currentTextBlock->words[2], "c");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreSplitsLongSpaceRunIntoGluedChunks) {
+  ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+  feed(parser, ("x" + std::string(251, ' ') + "y").c_str());
+  parser.flushPartWordBuffer();
+  const auto& block = *parser.currentTextBlock;
+  // 250 glued spaces after the breakable gap: a 200-byte chunk, then 50 glued to it.
+  ASSERT_EQ(block.size(), 4u);
+  EXPECT_EQ(block.words[1], std::string(200, ' '));
+  EXPECT_EQ(block.words[2], std::string(50, ' '));
+  EXPECT_FALSE(block.wordContinues[1]);
+  EXPECT_TRUE(block.wordContinues[2]);
+  EXPECT_TRUE(block.wordContinues[3]);
 }
 
 TEST_F(ChapterHtmlSlimParserTest, PreLineKeepsBreaksButCollapsesSpaces) {

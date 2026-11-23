@@ -1499,24 +1499,28 @@ void ChapterHtmlSlimParser::emitPreservedBreaks() {
   pendingPreservedBreaks = 0;
 }
 
-// The first space of a run between two words is the normal (breakable) word gap; every
-// other space becomes a glued " " token so indentation and column alignment survive.
+// The first space of a run between two words is the normal (breakable) word gap; the rest
+// become one glued token of spaces (chunked to the word buffer) so indentation and column
+// alignment survive without one cached/drawn token per space.
 void ChapterHtmlSlimParser::emitPreservedSpaces(const uint32_t visibleOffset, const uint32_t referenceOffset,
                                                 const uint32_t sourceOffset) {
   if (pendingPreservedSpaces == 0) return;
   const bool hasPrevious = currentTextBlock && !currentTextBlock->isEmpty();
-  const uint16_t tokens = hasPrevious ? pendingPreservedSpaces - 1 : pendingPreservedSpaces;
+  uint16_t remaining = hasPrevious ? pendingPreservedSpaces - 1 : pendingPreservedSpaces;
+  const bool any = remaining > 0;
   pendingPreservedSpaces = 0;
-  for (uint16_t k = 0; k < tokens && !lowMemoryAbort; ++k) {
-    partWordBuffer()[0] = ' ';
-    partWordBufferIndex = 1;
+  for (bool first = true; remaining > 0 && !lowMemoryAbort; first = false) {
+    const uint16_t chunk = std::min<uint16_t>(remaining, MAX_WORD_SIZE);
+    memset(partWordBuffer(), ' ', chunk);
+    partWordBufferIndex = chunk;
     partWordVisibleOffset = visibleOffset;
     partWordReferenceOffset = referenceOffset;
     partWordSourceOffset = sourceOffset;
-    nextWordContinues = k > 0;
+    nextWordContinues = !first;
     flushPartWordBuffer();
+    remaining -= chunk;
   }
-  nextWordContinues = tokens > 0;
+  nextWordContinues = any;
 }
 
 void ChapterHtmlSlimParser::pushCssAncestor(const int depth, const char* tag, const std::string_view classAttr,
