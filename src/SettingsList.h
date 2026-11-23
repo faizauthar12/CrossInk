@@ -306,7 +306,7 @@ inline SettingInfo buildDictionarySetting(const DictionaryRegistry& dictRegistry
   SettingInfo s;
   s.nameId = StrId::STR_DICTIONARY;
   s.type = SettingType::ENUM;
-  s.key = "dictionary";
+  s.key = "dictionaryName";
   s.category = StrId::STR_CAT_READER;
   s.enumStringValues.push_back(I18N.get(StrId::STR_NONE_OPT));
 

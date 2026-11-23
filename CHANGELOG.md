@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- Web settings API now lists the dictionary picker as `dictionaryName`, so the Dictionaries plugin can set the active dictionary.
 - Stay in the selected chapter when following EPUB Contents links, including links to positions within a chapter.
 - Indent EPUB blockquotes that rely on default margins (#956).
 - Code blocks in EPUBs are no longer collapsed into one justified, hyphenated paragraph.

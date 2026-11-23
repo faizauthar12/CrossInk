@@ -48,6 +48,7 @@
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
+#include "util/DictionaryRegistry.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "components/HeaderDate.h"
@@ -1793,11 +1794,20 @@ void CrossPointWebServer::handlePostStatusBars() {
   server->send(200, "text/plain", "Status bars saved");
 }
 
+// Web catalog = base list + dictionary picker. Local registry: the global one belongs to the UI task.
+static std::vector<SettingInfo> getWebSettingsList() {
+  auto settings = getBaseSettingsList();
+  DictionaryRegistry dicts;
+  dicts.discover();
+  settings.push_back(buildDictionarySetting(dicts));  // lambdas copy paths; safe after dicts dies
+  return settings;
+}
+
 void CrossPointWebServer::handleGetSettings() const {
   // Own one request-scoped catalog; release descriptors and nested options
   // when the response completes instead of retaining them throughout reading.
   sdFontSystem.refreshIfDirty();
-  const auto settings = getBaseSettingsList();
+  const auto settings = getWebSettingsList();
   const auto& fontFamilies = sdFontSystem.registry().getFamilies();
   const SdCardFontFamilyInfo* selectedSdFamily =
       SETTINGS.sdFontFamilyName[0] == '\0' ? nullptr : sdFontSystem.registry().findFamily(SETTINGS.sdFontFamilyName);
@@ -1965,7 +1975,13 @@ void CrossPointWebServer::handlePostSettings() {
   const std::string previousFolder = SETTINGS.opdsDownloadFolder;
 
   sdFontSystem.refreshIfDirty();
-  const auto& settings = getSettingsList(&sdFontSystem.registry());
+  const auto settings = [] {
+    auto v = getSettingsList(&sdFontSystem.registry());
+    DictionaryRegistry dicts;
+    dicts.discover();
+    v.push_back(buildDictionarySetting(dicts));
+    return v;
+  }();
   int applied = 0;
   uint8_t CrossPointSettings::* twoFingerSwipeEdited = nullptr;
 
