@@ -21,6 +21,7 @@
 - Nested lists, such as a book's inline table of contents, are indented per level instead of flattened into one column.
 - Code blocks render at a browser-like smaller size with compact line spacing, and an over-long indented code line wraps at the right edge instead of leaving a large blank gap.
 - Long unbreakable tokens such as URLs and dotted code identifiers wrap at the page edge instead of being cut off.
+- Code blocks no longer mix two monospace sizes, which could leave uneven spacing or clipped lines.
 
 ## [v2.0.0] - 2026-11-19
 

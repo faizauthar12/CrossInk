@@ -135,6 +135,7 @@ class GfxRenderer {
   // static storage: no heap, registered once at boot.
   static constexpr size_t MAX_MONOSPACE_FONTS = 4;
   int monospaceFontIds_[MAX_MONOSPACE_FONTS] = {};
+  int monospaceLineHeights_[MAX_MONOSPACE_FONTS] = {};  // cached at registration
   size_t monospaceFontCount_ = 0;
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,

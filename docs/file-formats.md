@@ -1147,7 +1147,15 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 120 (current development)
+### Version 121 (current development)
+
+Version 121 has no payload change. Preformatted lines now resolve the monospace
+font idempotently (a registered monospace id maps to itself), so code-block widths,
+glyphs, and row heights use one size; older caches laid out with mixed sizes are
+rejected. Complete files use byte `121`; suspended partials use `0xEA`. Version
+`120` / `0xE9` and earlier caches are rejected as stale.
+
+### Version 120
 
 Version 120 appends one `bool monospace` byte to each serialized text block's
 block style, after `lineHeight`. Lines from `<pre>` or CSS `white-space:
@@ -1163,7 +1171,7 @@ honour more `list-style-type` values. Layout also changes without new payload:
 adjacent block margins collapse (`max(bottom, top)` instead of their sum), the
 default half-line paragraph gap is skipped for blocks that set a bottom margin,
 and `ul`/`ol` without publisher left spacing get a 1.5em indent per level.
-Complete files use byte `120`; suspended partials use `0xE9`. Version `119` / `0xE8` and earlier caches are rejected as stale.
+Complete files use byte `120`; suspended partials use `0xE9`.
 
 CSS cache revision `26` replaces the boolean whitespace byte with a `whiteSpace`
 enum byte in the same position (0 normal, 1 pre-line, 2 preserve); the fixed

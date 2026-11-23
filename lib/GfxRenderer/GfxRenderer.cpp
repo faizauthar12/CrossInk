@@ -3304,6 +3304,7 @@ void GfxRenderer::setMonospaceFonts(const std::initializer_list<int> fontIds) {
       LOG_ERR("GFX", "Too many monospace fonts; ignoring %d", id);
       break;
     }
+    monospaceLineHeights_[monospaceFontCount_] = getLineHeight(id);  // fonts must already be inserted
     monospaceFontIds_[monospaceFontCount_++] = id;
   }
 }
@@ -3313,10 +3314,14 @@ int GfxRenderer::getMonospaceFontFor(const int textFontId) const {
   // Browsers shrink generic `monospace` to 13px against a 16px default (0.8125x); matching that
   // keeps ~40 code columns on a 480px page, so long code lines wrap far less. Pick the tallest
   // mono size whose line height fits within 85% of the reader font's.
+  // Callers feed the result back in (TextBlock/parser resolve twice); keep it stable.
+  for (size_t i = 0; i < monospaceFontCount_; ++i) {
+    if (monospaceFontIds_[i] == textFontId) return textFontId;
+  }
   const int target = getLineHeight(textFontId) * 85 / 100;
   int chosen = monospaceFontIds_[0];
   for (size_t i = 0; i < monospaceFontCount_; ++i) {
-    if (getLineHeight(monospaceFontIds_[i]) <= target) chosen = monospaceFontIds_[i];
+    if (monospaceLineHeights_[i] <= target) chosen = monospaceFontIds_[i];
   }
   return chosen;
 }

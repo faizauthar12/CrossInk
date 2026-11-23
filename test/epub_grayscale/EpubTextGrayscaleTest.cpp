@@ -131,6 +131,23 @@ TEST(EpubTextGrayscaleTest, CharacterSpacingMeasuresAndDrawsTheSameGlyphPosition
   }
 }
 
+TEST(EpubTextGrayscaleTest, MonospaceFontSelectionIsIdempotent) {
+  fakeheap::reset(true);
+  RasterFont body(40), mono20(20), mono30(30);
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&body.font));
+  renderer.insertFont(2, EpdFontFamily(&mono20.font));
+  renderer.insertFont(3, EpdFontFamily(&mono30.font));
+  renderer.setMonospaceFonts({2, 3});
+  const int picked = renderer.getMonospaceFontFor(1);
+  EXPECT_EQ(picked, 3);
+  // Layout and drawing resolve twice; the second pass must not shrink again.
+  EXPECT_EQ(renderer.getMonospaceFontFor(picked), picked);
+  EXPECT_EQ(renderer.getMonospaceFontFor(2), 2);
+}
+
 TEST(EpubTextGrayscaleTest, RedactionUsesWordAdvanceAndPaintsNoLetters) {
   fakeheap::reset(true);
   RasterFont fixture(12);
