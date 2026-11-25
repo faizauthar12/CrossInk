@@ -277,6 +277,23 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
     return renderer.getTextAdvanceX(fontId, word.c_str(), style, 0, characterSpacing);
   }
 
+  // Hyphenation trials call this per candidate; build short words on the stack to avoid a heap copy each time.
+  constexpr size_t STACK_WORD_BYTES = 96;
+  if (word.size() < STACK_WORD_BYTES) {
+    char buf[STACK_WORD_BYTES + 1];
+    size_t n = 0;
+    for (size_t i = 0; i < word.size(); ++i) {
+      if (hasSoftHyphen && i + 1 < word.size() && word.compare(i, SOFT_HYPHEN_BYTES, SOFT_HYPHEN_UTF8) == 0) {
+        i += SOFT_HYPHEN_BYTES - 1;
+        continue;
+      }
+      buf[n++] = word[i];
+    }
+    if (appendHyphen) buf[n++] = '-';
+    buf[n] = '\0';
+    return renderer.getTextAdvanceX(fontId, buf, style, 0, characterSpacing);
+  }
+
   std::string sanitized = word;
   if (hasSoftHyphen) {
     stripSoftHyphensInPlace(sanitized);

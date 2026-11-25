@@ -3067,6 +3067,8 @@ void EpubReaderActivity::idlePrewarmNextPage() {
   idlePrewarmPage = section->currentPage;
   idlePrewarmFontId = renderFontId;
 
+  // Idle clock is throttled; finish this bounded scan at full speed so the CPU returns to idle sooner.
+  HalPowerManager::Lock powerLock;
   auto page = section->loadPage(nextPage);
   if (!page) {
     LOG_DBG("ERS", "Idle SD font prewarm skipped: failed to load spine=%d page=%d", currentSpineIndex, nextPage);
@@ -3126,6 +3128,7 @@ void EpubReaderActivity::idlePrewarmTtf(const int fontId, FontCacheManager& mana
   const auto heap = MemoryBudget::snapshot();
   if (!MemoryBudget::hasHeap(heap, IDLE_SD_FONT_PREWARM_MIN_FREE, IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC)) return;
 
+  HalPowerManager::Lock powerLock;  // bounded slice: run at full clock, then return to idle sooner
   if (idleTtfJob.count == 0) {
     // Reuse the existing bounded page loader once per lookahead page, release
     // its allocation before cold rasterization, and never retain its section.
